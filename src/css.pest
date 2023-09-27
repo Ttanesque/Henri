@@ -1,0 +1,31 @@
+file = { SOI ~ charset ~ (rule | variable | comment)* ~ EOI }
+
+charset  = { "@charset" ~ charset_value ~ end }
+variable = { var_name ~ var_val ~ end }
+rule     = { selecteurs ~ bracket_op ~ (propertie | comment)+ ~ bracket_cl }
+
+charset_value = ${ PUSH("\"") ~ css_name ~ POP }
+
+var_val   =  { (!end ~ ANY)* }
+var_name  = ${ var_start ~ prop_name ~ separation }
+var_start = _{ "--" }
+
+selecteurs            = ${ selecteur ~ (WHITESPACE ~ selecteur)* }
+selecteur             = ${ selecteur_char_reserv? ~ word ~ (selecteur_char_reserv ~ word)* }
+selecteur_char_reserv =  { (":" | "." | "#" | "@" | "::") }
+propertie             =  { prop_name ~ separation ~ value }
+
+value     =  { num_word ~ num_word* ~ end }
+prop_name = ${ word ~ ("-" ~ word)* }
+css_name  = @{ num_word ~ ("-" ~ num_word)* }
+word      =  { ASCII_ALPHA+ }
+num_word  =  { ASCII_ALPHANUMERIC+ }
+
+arobase    = _{ "@" }
+end        = _{ ";" }
+separation = _{ ":" }
+bracket_cl = _{ "}" }
+bracket_op = _{ "{" }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+comment    = _{ PUSH("/*") ~ ANY* ~ POP }

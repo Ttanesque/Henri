@@ -1,0 +1,7 @@
+@charset "utf-8";
+
+html {
+   display: block;
+   font: roboto consolas arial;
+   border: 2px black solid;
+}
