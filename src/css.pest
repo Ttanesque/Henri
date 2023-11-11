@@ -1,31 +1,68 @@
-file = { SOI ~ charset ~ (rule | variable | comment)* ~ EOI }
+file = { SOI ~ mono_rule* ~ (rule | media | variable)* ~ EOI }
 
-charset  = { "@charset" ~ charset_value ~ end }
-variable = { var_name ~ var_val ~ end }
-rule     = { selecteurs ~ bracket_op ~ (propertie | comment)+ ~ bracket_cl }
+mono_rule = { mono_start ~ mono_value ~ end }
+variable  = { var_name ~ var_val ~ end }
+media     = { media_start ~ block }
+rule      = { selecteurs ~ block }
 
-charset_value = ${ PUSH("\"") ~ css_name ~ POP }
+mono_start = ${ arobase ~ word }
+mono_value = ${ PUSH("\"") ~ any_quote_value ~ POP }
 
 var_val   =  { (!end ~ ANY)* }
 var_name  = ${ var_start ~ prop_name ~ separation }
 var_start = _{ "--" }
 
-selecteurs            = ${ selecteur ~ (WHITESPACE ~ selecteur)* }
-selecteur             = ${ selecteur_char_reserv? ~ word ~ (selecteur_char_reserv ~ word)* }
-selecteur_char_reserv =  { (":" | "." | "#" | "@" | "::") }
+block = { bracket_op ~ propertie+ ~ bracket_cl }
+
+media_start     =  { media_op ~ media_type_cond ~ (media_logic_op ~ media_type_cond)* }
+media_type_cond =  { ("all" | "print" | "screen" | media_cond) }
+media_cond      =  { parenthe_op ~ (propertie | prop_name | media_range | media_if) ~ parenthe_cl }
+media_range     =  { value ~ operateur ~ prop_name ~ operateur ~ value }
+media_if        =  { prop_name ~ operateur ~ value }
+media_logic_op  =  { ("and" | "not" | "only" | "," | "or") }
+media_op        = _{ "@media" }
+
+selecteurs            = _{ selecteur ~ (WHITESPACE ~ selecteur)* }
+selecteur             = ${ selecteur_atomic* ~ wp? ~ (selecteur_combinateur? ~ wp? ~ selecteur_atomic)* }
+wp                    =  { (" " | "\t" | "\n" | "\r") }
+selecteur_combinateur =  { (list | sup | neightbour | direct_neightbour) }
+selecteur_atomic      = _{ (ps_class | class | id | balise | ps_elmnt | ps_class) }
 propertie             =  { prop_name ~ separation ~ value }
 
-value     =  { num_word ~ num_word* ~ end }
-prop_name = ${ word ~ ("-" ~ word)* }
-css_name  = @{ num_word ~ ("-" ~ num_word)* }
-word      =  { ASCII_ALPHA+ }
-num_word  =  { ASCII_ALPHANUMERIC+ }
+list              = { "," }
+direct_neightbour = { "+" }
+neightbour        = { "~" }
 
-arobase    = _{ "@" }
-end        = _{ ";" }
-separation = _{ ":" }
-bracket_cl = _{ "}" }
-bracket_op = _{ "{" }
+balise   = { word }
+class    = { dot ~ prop_name }
+id       = { hastag ~ prop_name }
+ps_elmnt = { pair_colon ~ prop_name }
+ps_class = { colon ~ prop_name }
+
+any_quote_value =  { (!"\"" ~ ANY)* }
+value           =  { num_word ~ num_word* ~ end }
+prop_name       = ${ word ~ ("-" ~ word)* }
+css_name        = @{ num_word ~ ("-" ~ num_word)* }
+word            =  { ASCII_ALPHA+ }
+num_word        =  { ASCII_ALPHANUMERIC+ }
+
+operateur = @{ (sup | sup_eq | inf | inf_eq) }
+sup       =  { ">" }
+sup_eq    =  { ">=" }
+inf       =  { "<" }
+inf_eq    =  { "<=" }
+
+dot         = _{ "." }
+hastag      = _{ "#" }
+colon       = _{ ":" }
+pair_colon  = _{ "::" }
+arobase     = _{ "@" }
+end         = _{ ";" }
+separation  = _{ ":" }
+parenthe_op = _{ "(" }
+parenthe_cl = _{ ")" }
+bracket_cl  = _{ "}" }
+bracket_op  = _{ "{" }
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
-comment    = _{ PUSH("/*") ~ ANY* ~ POP }
+COMMENT    = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
