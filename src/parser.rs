@@ -226,14 +226,15 @@ fn parse_selectors(selecteurs: Pair<'_, Rule>) -> Option<CssSelecteurType> {
     Some(CssSelecteurType::Selecteur(selecteur_list))
 }
 
-/// Tente de parser une variable css prend une liste sortie d'un token variable (variable [var_name, var_val]) et en resort un couple
-fn parse_variable(var_token: Pairs<'_, Rule>) -> Result<(&str, &str), &str> {
+/// Tente de parser une variable css prend une liste sortie d'un token variable
+/// (variable [(var_name, [name, separator]), var_val]) et en resort un couple : nom, valeur.
+fn parse_variable(var_token: Pairs<'_, Rule>) -> Result<(String, String), &str> {
     let mut name = None;
     let mut val = None;
     for token in var_token {
         match token.as_rule() {
-            Rule::var_name => name = Some(token.as_str()),
-            Rule::var_val => val = Some(token.as_str()),
+            Rule::var_name => name = Some(extract_1st_token_as_string(token)),
+            Rule::var_val => val = Some(token.as_str().to_string()),
             _ => warn!("token inattendu {}", token),
         }
     }
@@ -250,4 +251,25 @@ fn parse_variable(var_token: Pairs<'_, Rule>) -> Result<(&str, &str), &str> {
 /// présent sinon panic (les token sont censé être maîtriser).
 fn extract_1st_token_as_string(token: Pair<'_, Rule>) -> String {
     token.into_inner().next().unwrap().as_str().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use pest::Parser;
+
+    use crate::parser::parse_variable;
+
+    use super::{CSSParser, Rule};
+
+    #[test]
+    fn variable() {
+        if let Ok(mut token) = CSSParser::parse(Rule::variable, "--ok: zz;") {
+            assert_eq!(
+                parse_variable(token.next().unwrap().into_inner()),
+                Ok(("ok".to_string(), "zz".to_string()))
+            );
+        } else {
+            assert_eq!(false, true, "problème de parsing dans le text");
+        }
+    }
 }

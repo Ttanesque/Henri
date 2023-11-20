@@ -18,6 +18,6 @@ mod tests {
         init();
         let raw_css = fs::read_to_string("test/style.css").expect("pas de fichier, pas de chocolats");
         debug!("ok");
-        parser::parse(raw_css.as_str());
+        let _ = parser::parse(raw_css.as_str());
     }
 }

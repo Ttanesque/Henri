@@ -1,4 +1,4 @@
-file = { SOI ~ mono_rule* ~ (rule | media | variable)* ~ EOI }
+file = { SOI ~ mono_rule* ~ (rule | media)* ~ EOI }
 
 mono_rule = { mono_start ~ mono_value ~ end }
 variable  = { var_name ~ var_val ~ end }
@@ -12,7 +12,7 @@ var_val   =  { (!end ~ ANY)* }
 var_name  = ${ var_start ~ prop_name ~ separation }
 var_start = _{ "--" }
 
-block = { bracket_op ~ propertie+ ~ bracket_cl }
+block = { bracket_op ~ (propertie | variable)+ ~ bracket_cl }
 
 media_start     =  { media_op ~ media_type_cond ~ (media_logic_op ~ media_type_cond)* }
 media_type_cond =  { ("all" | "print" | "screen" | media_cond) }
@@ -25,7 +25,7 @@ media_op        = _{ "@media" }
 selecteurs            = _{ selecteur ~ (WHITESPACE ~ selecteur)* }
 selecteur             = ${ selecteur_atomic* ~ wp? ~ (selecteur_combinateur? ~ wp? ~ selecteur_atomic)* }
 wp                    =  { (" " | "\t" | "\n" | "\r") }
-selecteur_combinateur =  { (list | sup | neightbour | direct_neightbour) }
+selecteur_combinateur =  { (list | sup | neightbour | direct_neightbour | wp) }
 selecteur_atomic      = _{ (ps_class | class | id | balise | ps_elmnt | ps_class) }
 propertie             =  { prop_name ~ separation ~ value }
 
