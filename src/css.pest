@@ -3,7 +3,7 @@ file = { SOI ~ mono_rule* ~ (rule | media)* ~ EOI }
 mono_rule = { mono_start ~ mono_value ~ end }
 variable  = { var_name ~ var_val ~ end }
 media     = { media_start ~ block }
-rule      = { selecteurs ~ block }
+rule      = { selecteur ~ block }
 
 mono_start = ${ arobase ~ word }
 mono_value = ${ PUSH("\"") ~ any_quote_value ~ POP }
@@ -12,7 +12,7 @@ var_val   =  { (!end ~ ANY)* }
 var_name  = ${ var_start ~ prop_name ~ separation }
 var_start = _{ "--" }
 
-block = { bracket_op ~ (propertie | variable)+ ~ bracket_cl }
+block = { bracket_op ~ (propertie | variable)* ~ bracket_cl }
 
 media_start     =  { media_op ~ media_type_cond ~ (media_logic_op ~ media_type_cond)* }
 media_type_cond =  { ("all" | "print" | "screen" | media_cond) }
@@ -22,18 +22,18 @@ media_if        =  { prop_name ~ operateur ~ value }
 media_logic_op  =  { ("and" | "not" | "only" | "," | "or") }
 media_op        = _{ "@media" }
 
-selecteurs            = _{ selecteur ~ (WHITESPACE ~ selecteur)* }
-selecteur             = ${ selecteur_atomic* ~ wp? ~ (selecteur_combinateur? ~ wp? ~ selecteur_atomic)* }
-wp                    =  { (" " | "\t" | "\n" | "\r") }
-selecteur_combinateur =  { (list | sup | neightbour | direct_neightbour | wp) }
-selecteur_atomic      = _{ (ps_class | class | id | balise | ps_elmnt | ps_class) }
-propertie             =  { prop_name ~ separation ~ value }
+selecteur            = ${ selecteur_atomic* ~ WHITESPACE? ~ selecteur_combinator* }
+wp                   =  { (" " | "\t" | "\n" | "\r") }
+selecteur_combinator = ${ selecteur_op ~ WHITESPACE* ~ (selecteur_atomic | selecteur_combinator)* }
+selecteur_op         =  { (list | sup | neightbour | direct_neightbour | wp) }
+selecteur_atomic     =  { (ps_class | class | id | balise | ps_elmnt | ps_class) }
+propertie            =  { prop_name ~ separation ~ value }
 
 list              = { "," }
 direct_neightbour = { "+" }
 neightbour        = { "~" }
 
-balise   = { word }
+balise   = { num_word }
 class    = { dot ~ prop_name }
 id       = { hastag ~ prop_name }
 ps_elmnt = { pair_colon ~ prop_name }

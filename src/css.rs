@@ -53,6 +53,17 @@ impl CSS {
 }
 
 impl CSSword {
+    pub fn new() -> CSSword {
+        CSSword {
+            tag: None,
+            class: Vec::new(),
+            id: None,
+            attr: None,
+            psd_class: Vec::new(),
+            psd_elt: Vec::new(),
+        }
+    }
+
     pub fn from_balise(tag_name: String) -> CSSword {
         CSSword {
             tag: Some(tag_name),
