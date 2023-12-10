@@ -6,4 +6,12 @@ html {
    border: 2px black solid;
 }
 
+html  header {}
+
 html, .header {}
+
+html + header {}
+
+html ~ .head {}
+
+html > #ks {}

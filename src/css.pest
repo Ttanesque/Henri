@@ -22,12 +22,13 @@ media_if        =  { prop_name ~ operateur ~ value }
 media_logic_op  =  { ("and" | "not" | "only" | "," | "or") }
 media_op        = _{ "@media" }
 
+// problème connue pour le sélecteur enfant il faut 2 espaces min pas 1
 selecteur            = ${ selecteur_atomic* ~ WHITESPACE? ~ selecteur_combinator* }
-wp                   =  { (" " | "\t" | "\n" | "\r") }
-selecteur_combinator = ${ selecteur_op ~ WHITESPACE* ~ (selecteur_atomic | selecteur_combinator)* }
-selecteur_op         =  { (list | sup | neightbour | direct_neightbour | wp) }
+selecteur_combinator = ${ selecteur_op ~ (selecteur_atomic | selecteur_combinator)+ }
+selecteur_op         =  { (list | sup | neightbour | direct_neightbour | wp) ~ WHITESPACE* }
 selecteur_atomic     =  { (ps_class | class | id | balise | ps_elmnt | ps_class) }
 propertie            =  { prop_name ~ separation ~ value }
+wp                   =  { (" " | "\t" | "\n" | "\r")+ }
 
 list              = { "," }
 direct_neightbour = { "+" }

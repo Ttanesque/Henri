@@ -5,7 +5,7 @@ use pest::{
 };
 use pest_derive::Parser;
 
-use crate::css::{CSSCombinator, CSSword, CssSelecteurType, CSS};
+use crate::css::{CSSCombinator, CSSword, CSS};
 
 #[derive(Parser)]
 #[grammar = "css.pest"]
@@ -54,7 +54,8 @@ pub fn parse(input: &str) -> Result<CSS, String> {
                 // une rule est composé de un selecteur et un block donc pas de problème pour
                 // unwrap.
                 let mut iter = line.into_inner();
-                let _selecteurs: Option<_> = parse_selectors(iter.next().unwrap());
+                let _selec = parse_selecteur(iter.next().unwrap().into_inner());
+                debug!("version parser : {}", _selec);
                 let _block = iter.next().unwrap();
             }
             Rule::EOI => (),
@@ -67,163 +68,85 @@ pub fn parse(input: &str) -> Result<CSS, String> {
     Ok(css_res)
 }
 
-/// Parse les sélecteurs.
-/// TODO: optimiser avec de la curryfication
-fn parse_selectors(selecteurs: Pair<'_, Rule>) -> Option<CssSelecteurType> {
-    debug!("{}", selecteurs.as_str());
-    debug!("{}", selecteurs);
+fn parse_selecteur(selecteur_token: Pairs<'_, Rule>) -> CSSCombinator {
+    
+    let mut parse_selec: CSSCombinator = CSSCombinator::None;
 
-    let mut selecteur_list: Vec<CSSCombinator> = Vec::new();
-    let mut curr_selec: CSSCombinator = CSSCombinator::None;
-    let mut combinator: Option<Rule> = None;
+    debug!("selecteur a parser {}", selecteur_token);
 
-    for selecteur in selecteurs.into_inner() {
-        let tok = selecteur.as_rule();
-        debug!("{:?}", tok);
-        match tok {
-            Rule::balise => {
-                let name = selecteur.as_str().to_string();
-
-                if matches!(curr_selec, CSSCombinator::None) {
-                    curr_selec = CSSCombinator::Unit(CSSword::from_balise(name));
+    for token in selecteur_token {
+        debug!("{}", token);
+        match token.as_rule() {
+            Rule::selecteur_combinator => {
+                if matches!(parse_selec, CSSCombinator::None) {
+                    warn!("Un opérateur de combinaison est présent mais il n'existe pas de sélecteur précédent {}", token.as_str());
                 } else {
-                    if let CSSCombinator::Unit(ref mut selec) = curr_selec {
-                        selec.tag = Some(name);
-                    } else {
-                        warn!("le selecteur en cours de construction est inexistant");
-                    };
-                }
-            }
-            Rule::id => {
-                // id est de format #word et produit en token class("#class", [word("class", [])])
-                // on a donc juste besoin d'accéder au second token.
-                let name = extract_1st_token_as_string(selecteur);
+                    let mut iter_tok = token.into_inner();
+                    // un combinator est de la forme : selecteur_combinator, [selecteur_op(operateur), selecteur...]
+                    // on peut donc unwrap le premier et passer le reste à parser.
+                    
+                    let op = iter_tok.next().unwrap().into_inner().next().unwrap().as_rule();
+                    let left_selec = parse_selecteur(iter_tok);
 
-                if matches!(curr_selec, CSSCombinator::None) {
-                    curr_selec = CSSCombinator::Unit(CSSword::from_id(name));
-                } else {
-                    if let CSSCombinator::Unit(ref mut selec) = curr_selec {
-                        selec.id = Some(name)
+                    if matches!(left_selec, CSSCombinator::None) {
+                        warn!("la seconde partie du combinator n'est pas présent");
                     } else {
-                        warn!("le selecteur en cours de construction est inexistant");
+                        parse_selec = combinator_builder(op, parse_selec, left_selec);
                     }
                 }
             }
-            Rule::class => {
-                // class est de format .word et produit en token class(".class", [word("class", [])])
-                // on a donc juste besoin d'accéder au second token.
-                let name = extract_1st_token_as_string(selecteur);
-
-                if matches!(curr_selec, CSSCombinator::None) {
-                    curr_selec = CSSCombinator::Unit(CSSword::from_class(name));
-                } else {
-                    if let CSSCombinator::Unit(ref mut selec) = curr_selec {
-                        selec.class.push(name);
-                    } else {
-                        warn!("le selecteur en cours de construction est inexistant");
-                    }
-                }
+            Rule::selecteur_atomic => {
+                parse_selec = CSSCombinator::Unit(parse_selector_atomique(token.into_inner()));
             }
-            Rule::ps_class => {
-                let name = extract_1st_token_as_string(selecteur);
-
-                if matches!(curr_selec, CSSCombinator::None) {
-                    warn!("utilisation d'une pseudo class sans selecteur précédent");
-                } else {
-                    if let CSSCombinator::Unit(ref mut selec) = curr_selec {
-                        selec.psd_class.push(name);
-                    } else {
-                        warn!("le selecteur en cours de construction est inexistant");
-                    }
-                }
+            _ => {
+                warn!("token {:#?} inconnu pour un selecteur", token.as_rule());
+                break;
             }
-            Rule::ps_elmnt => {
-                let name = extract_1st_token_as_string(selecteur);
-
-                if matches!(curr_selec, CSSCombinator::None) {
-                    warn!("utilisation d'une pseudo élément sans selecteur précédent");
-                } else {
-                    if let CSSCombinator::Unit(ref mut selec) = curr_selec {
-                        selec.psd_elt.push(name);
-                    } else {
-                        warn!("le selecteur en cours de construction est inexistant");
-                    }
-                }
-            }
-            Rule::selecteur_combinateur => {
-                // on réécris dessus sans check les combinateurs ont la prio sur les espaces qui sont peut-être juste du formattage
-                combinator = Some(selecteur.into_inner().next().unwrap().as_rule());
-                selecteur_list.push(curr_selec);
-                curr_selec = CSSCombinator::None;
-            }
-            Rule::wp => {
-                if combinator.is_none() {
-                    combinator = Some(Rule::wp);
-                    selecteur_list.push(curr_selec);
-                    curr_selec = CSSCombinator::None;
-                } // sinon on l'ignore
-            }
-            _ => warn!("Token {} inconnu pour un selecteur", selecteur.as_str()),
         }
-        if combinator.is_some()
-            && !matches!(curr_selec, CSSCombinator::None)
-            && !(matches!(tok, Rule::selecteur_combinateur) && matches!(tok, Rule::wp))
-        {
-            // combinator est check précédemment curr_selec = CSSCombinator::None;
-            match combinator.unwrap() {
-                Rule::wp => {
-                    let old = selecteur_list.pop();
-                    if old.is_some() {
-                        let tmp =
-                            CSSCombinator::Child((Box::new(old.unwrap()), Box::new(curr_selec)));
-                        selecteur_list.push(tmp);
-                    }
-                }
-                Rule::sup => {
-                    let old = selecteur_list.pop();
-                    if old.is_some() {
-                        let tmp = CSSCombinator::DirectChild((
-                            Box::new(old.unwrap()),
-                            Box::new(curr_selec),
-                        ));
-                        selecteur_list.push(tmp);
-                    }
-                }
-                Rule::direct_neightbour => {
-                    let old = selecteur_list.pop();
-                    if old.is_some() {
-                        let tmp = CSSCombinator::DirectNeightbour((
-                            Box::new(old.unwrap()),
-                            Box::new(curr_selec),
-                        ));
-                        selecteur_list.push(tmp);
-                    }
-                }
-                Rule::neightbour => {
-                    let old = selecteur_list.pop();
-                    if old.is_some() {
-                        let tmp = CSSCombinator::Neightbour((
-                            Box::new(old.unwrap()),
-                            Box::new(curr_selec),
-                        ));
-                        selecteur_list.push(tmp);
-                    }
-                }
-                Rule::list => (), // liste on fais rien le selecteur a déjà été poussé
-                _ => warn!("combinateur {:?} inconnu", Some(combinator)),
+        debug!("result {}", parse_selec);
+    }
+
+    parse_selec
+}
+
+
+/// A partir de 2 Sélecteur et d'un opétateur renvoie le sélecteur correspondant
+fn combinator_builder(op_token: Rule, right: CSSCombinator, left: CSSCombinator) -> CSSCombinator {
+    match op_token {
+        Rule::list => CSSCombinator::List(vec![right, left]),
+        Rule::wp => CSSCombinator::Child((Box::new(right), Box::new(left))),
+        Rule::sup => CSSCombinator::DirectChild((Box::new(right), Box::new(left))),
+        Rule::neightbour => CSSCombinator::Neightbour((Box::new(right), Box::new(left))),
+        Rule::direct_neightbour => CSSCombinator::DirectNeightbour((Box::new(right), Box::new(left))),
+        _ => {
+            warn!("Combinator Builder Token inattendue {:#?}", op_token);
+            // la première partie est non vide
+            if !matches!(right, CSSCombinator::None) {
+                return right;
             }
-            curr_selec = CSSCombinator::None;
-            combinator = None
+            return CSSCombinator::None;
+        }
+    }
+}
+
+/// Parse les sélecteurs atomique càd les sélecteurs qui ne sont pas > + ~ , \whitespace
+fn parse_selector_atomique(selecteur_token: Pairs<'_, Rule>) -> CSSword {
+    let mut selecteur: CSSword = CSSword::new();
+    for selec in selecteur_token {
+        match selec.as_rule() {
+            Rule::balise => selecteur.tag = Some(selec.as_str().to_string()),
+            Rule::id => selecteur.id = Some(extract_1st_token_as_string(selec)),
+            Rule::class => selecteur.class.push(extract_1st_token_as_string(selec)),
+            Rule::ps_class => selecteur.psd_class.push(extract_1st_token_as_string(selec)),
+            Rule::ps_elmnt => selecteur.psd_elt.push(extract_1st_token_as_string(selec)),
+            _ => warn!(
+                "Token {:#?} inconnu pour un selecteur atomic",
+                selec.as_rule()
+            ),
         }
     }
 
-    if !matches!(curr_selec, CSSCombinator::None) {
-        selecteur_list.push(curr_selec);
-    }
-
-    debug!("{:#?}", selecteur_list);
-
-    Some(CssSelecteurType::Selecteur(selecteur_list))
+    selecteur
 }
 
 /// Tente de parser une variable css prend une liste sortie d'un token variable
