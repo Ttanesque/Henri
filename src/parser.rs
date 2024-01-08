@@ -1,4 +1,4 @@
-use std::{char, iter::Peekable, str::Chars};
+use std::{char, iter::Peekable, str::Chars, result};
 
 use log::{debug, error, trace, warn};
 
@@ -11,8 +11,8 @@ enum HashTokenFlag {
 
 #[derive(Debug)]
 enum NumericValue {
-    Integer(u64),
-    Number(f64),
+    Integer,
+    Number,
 }
 
 #[derive(Debug)]
@@ -26,9 +26,9 @@ enum CssToken {
     BadStringToken,
     BadUrlToken,
     DelimToken(char),
-    NumberToken { sign: bool, value: NumericValue },
-    PercentageToken { sign: bool, value: u64 },
-    DimensionToken { sign: bool, value: NumericValue },
+    NumberToken { sign: bool, val_type: NumericValue, value: String },
+    PercentageToken { sign: bool, value: String },
+    DimensionToken { unit: String, sign: bool, val_type: NumericValue, value: String},
     UnicodeRangeToken,
     WhitespaceToken,
     CdoToken,
@@ -70,6 +70,9 @@ fn tokenization(input: String) -> Result<Vec<CssToken>, String> {
                 it.next();
                 tokens.push(consume_string_token(&mut it, current_input));
             }
+            '#' => {
+                // todo
+            }
             '\\' => {
                 it.next();
                 if let Some(&next_char) = it.peek() {
@@ -82,8 +85,31 @@ fn tokenization(input: String) -> Result<Vec<CssToken>, String> {
                     }
                 }
             }
+            '+' => {
+                // todo
+            }
+            '-' => {
+                // todo
+            }
             '0'..='9' => {
-                tokens.push(consume_numeric_token(it));
+                tokens.push(consume_numeric_token(&mut it));
+            }
+            '@' => {
+                it.next();
+                if check_start_ident_sequence(&mut it) {
+                    tokens.push(CssToken::AtKeywordToken(consume_ident_sequence(&mut it)));
+                } else {
+                    tokens.push(CssToken::DelimToken(current_input));
+                }
+            }
+            '.' => {
+                // todo
+            }
+            '<' => {
+                // todo
+            }
+            'U' | 'u' => {
+                // todo
             }
             '(' => {
                 it.next();
@@ -122,8 +148,11 @@ fn tokenization(input: String) -> Result<Vec<CssToken>, String> {
                 tokens.push(CssToken::SemicolonToken);
             }
             _ => {
+                if is_ident_start_code_point(current_input) {
+                    tokens.push(consume_ident_like_token(&mut it));
+                } else {
                 it.next();
-                tokens.push(CssToken::DelimToken(current_input));
+                tokens.push(CssToken::DelimToken(current_input));}
             }
         }
     }
@@ -171,8 +200,21 @@ fn consume_ident_like_token(it: &mut Peekable<Chars<'_>>) -> CssToken {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-a-numeric-token
-fn consume_numeric_token(it: Peekable<Chars<'_>>) -> CssToken {
-    todo!()
+fn consume_numeric_token(it: &mut Peekable<Chars<'_>>) -> CssToken {
+    let number = consume_number(it);
+    let CssToken::NumberToken { sign, val_type, value } = number else {
+        error!("Unknow error a number consuming go wrong {:#?}", number);
+        todo!()
+    };
+
+    if check_start_ident_sequence(it) {
+        let unit = consume_ident_sequence(it);
+        return CssToken::DimensionToken { unit, sign, val_type, value };
+    } else if next_char_is_x(it, '%') {
+        return CssToken::PercentageToken { sign, value };
+    } else {
+        return CssToken::NumberToken { sign, val_type, value };
+    }
 }
 
 /// Consume a String token with is ending_char.
@@ -205,6 +247,7 @@ fn consume_string_token(it: &mut Peekable<Chars<'_>>, ending_char: char) -> CssT
 
     CssToken::StringToken(string)
 }
+
 
 /// https://drafts.csswg.org/css-syntax/#consume-a-url-token
 fn consume_url_token(it: &mut Peekable<Chars<'_>>) -> CssToken {
@@ -298,10 +341,57 @@ fn consume_ident_sequence(it: &mut Peekable<Chars<'_>>) -> String {
 
 /// https://drafts.csswg.org/css-syntax/#consume-a-number
 fn consume_number(it: &mut Peekable<Chars<'_>>) -> CssToken {
-    let type_num = false; // false integer, true number
-    let sign = true; // tue +, false -; default true
+    let mut type_num = false; // false integer, true number
+    let mut sign = true; // tue +, false -; default true
+    let mut number = String::new();
 
-    todo!()
+    while let Some(&current_char) = it.peek() {
+        match current_char {
+            '+' => {
+                it.next();
+            }
+            '-' => {
+                sign = false;
+                it.next();
+            }
+            '0'..='9' => {
+                number.push(current_char);
+                it.next();
+            }
+            '.' => {
+                it.next();
+                if let Some(&next_char) = it.peek() {
+                    if is_digit(next_char) {
+                        number.push(current_char);
+                        number.push_str(consume_digit(it).as_str());
+                        type_num = true;
+                    } else {
+                        it.next_back();
+                        break;
+                    }
+                } else {
+                    it.next_back();
+                    break;
+                }
+            }
+            'e' | 'E' => {
+                // ! Erreur possible besoins de vérifier les 2 char mais 1 seul de fais
+                if next_char_is(it, |x| matches!(x, '+' | '-' | '0'..='9')) {
+                    number.push(current_char.to_ascii_lowercase());
+                    number.push_str(consume_digit(it).as_mut_str());
+                } else {
+                    break;
+                }
+            }
+            _ => break
+        }
+    }
+
+    if type_num {
+        CssToken::NumberToken { sign, value: number, val_type: NumericValue::Number }
+    } else {
+        CssToken::NumberToken { sign, value: number, val_type: NumericValue::Integer }
+    }
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-an-escaped-code-point
@@ -358,6 +448,33 @@ fn start_valid_escape(it: &mut Peekable<Chars<'_>>) -> bool {
     false
 }
 
+/// https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-an-ident-sequence
+fn check_start_ident_sequence(it: &mut Peekable<Chars<'_>>) -> bool {
+    if let Some(&first_code) = it.peek() {
+        match first_code {
+            '\u{002D}' => {
+                it.next();
+                if let Some(&second_char) = it.peek() {
+                    if is_ident_start_code_point(second_char) || second_char == '\u{002D}' || start_valid_escape(it) {
+                        it.next_back();
+                        return true;
+                    }
+                }
+                it.next_back();
+                return false;
+            }
+            '\\' => {
+                return start_valid_escape(it);
+            }
+            _ => {
+                return is_ident_start_code_point(first_code);
+            }
+        }
+    }
+
+    false
+}
+
 /// https://drafts.csswg.org/css-syntax/#consume-the-remnants-of-a-bad-url
 fn consume_remnants_bad_url(it: &mut Peekable<Chars<'_>>) {
     while let Some(&current_char) = it.peek() {
@@ -379,13 +496,55 @@ fn consume_remnants_bad_url(it: &mut Peekable<Chars<'_>>) {
 
 // --- utils ---
 
+/// Consume a chunk of digit.
+pub fn consume_digit(it: &mut Peekable<Chars<'_>>) -> String {
+    let mut result = String::new();
+
+    while let Some(&current_char) = it.peek() {
+        if is_digit(current_char) {
+            result.push(current_char);
+            it.next();
+        } else {
+            break;
+        }
+    }
+
+    result
+}
+
 #[inline]
-pub fn next_char_is_quote(it: &mut Peekable<Chars<'_>>) -> bool {
+pub fn next_char_is(it: &mut Peekable<Chars<'_>>, f: fn(char) -> bool) -> bool {
     it.next();
     if let Some(&next_char) = it.peek() {
-        if next_char == '"' || next_char == '\'' {
-            return true;
-        }
+        return f(next_char);
+    }
+    it.next_back();
+    false
+}
+
+/// Check if the next char is x
+#[inline]
+pub fn next_char_is_x(it: &mut Peekable<Chars<'_>>, x: char) -> bool {
+    it.next();
+    if let Some(&next_char) = it.peek() {
+        return next_char == x;
+    }
+    it.next_back();
+    false
+}
+
+/// Check if a char is string gard ' or ".
+#[inline]
+pub fn next_char_is_quote(it: &mut Peekable<Chars<'_>>) -> bool {
+    next_char_in(it, &['"', '\''])
+}
+
+/// Check if the next char is in the given array.
+#[inline]
+pub fn next_char_in(it: &mut Peekable<Chars<'_>>, x: &[char]) -> bool {
+    it.next();
+    if let Some(next_char) = it.peek() {
+        return x.contains(next_char);
     }
     it.next_back();
     false
@@ -396,11 +555,48 @@ pub fn is_whitespace(char_check: char) -> bool {
     matches!(char_check, '\n' | '\t' | ' ')
 }
 
-/// Check if a char is a digit with upper and owercase support
+/// Check if a char is a digit
 #[inline]
-fn is_hex_digit(char_check: char) -> bool {
-    matches!(char_check, 'a'..='f' | 'A'..='F' | '0'..='9')
+pub fn is_digit(char_check: char) -> bool {
+    matches!(char_check, '0'..='9')
 }
+
+#[inline]
+pub fn is_hex_digit(char_check: char) -> bool {
+    matches!(char_check, '0'..='9' | 'a'..='z' | 'A'..='Z')
+}
+
+#[inline]
+pub fn is_letter(char_check: char) -> bool {
+    matches!(char_check, 'a'..='z' | 'A'..='Z')
+}
+
+#[inline]
+pub fn is_non_ascii_ident(char_check: char) -> bool {
+    matches!(char_check, 
+    '\u{00B7}'
+            | '\u{200C}'
+            | '\u{200D}'
+            | '\u{203F}'
+            | '\u{2040}'
+            | '\u{00C0}'..='\u{00D6}'
+            | '\u{00D8}'..='\u{00F6}'
+            | '\u{00F8}'..='\u{037D}'
+            | '\u{037F}'..='\u{1FFF}'
+            | '\u{2070}'..='\u{218F}'
+            | '\u{2C00}'..='\u{2FEF}'
+            | '\u{3001}'..='\u{D2FF}'
+            | '\u{F900}'..='\u{FDCF}'
+            | '\u{FDF0}'..='\u{FFFD}') || char_check > '\u{10000}'
+}
+
+/// https://drafts.csswg.org/css-syntax/#ident-start-code-point
+#[inline]
+fn is_ident_start_code_point(char_check: char) -> bool {
+    is_letter(char_check) || is_non_ascii_ident(char_check) || char_check == '_'
+}
+
+// --- hex ---
 
 /// https://infra.spec.whatwg.org/#surrogate
 #[inline]
@@ -421,6 +617,7 @@ pub fn is_a_trailing_surrogate_hex(char_value: u32) -> bool {
 }
 
 /// https://drafts.csswg.org/css-syntax/#maximum-allowed-code-point
+#[inline]
 fn is_max_allowed_code_point_hex(char_value: u32) -> bool {
     char_value > 0x10FFFF
 }
