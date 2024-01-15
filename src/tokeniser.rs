@@ -59,7 +59,11 @@ pub(crate) enum CssToken {
     AcoladeClToken,
 }
 
-/// https://drafts.csswg.org/css-syntax/#input-preprocessing
+/// Preprocess the CSS see the [spec](https://drafts.csswg.org/css-syntax/#input-preprocessing).
+/// 
+/// * Replace any U+000D CARRIAGE RETURN (CR) code points, U+000C FORM FEED (FF) code points, or pairs
+///   of U+000D CARRIAGE RETURN (CR) followed by U+000A LINE FEED (LF) in input by a single U+000A LINE FEED (LF) code point.
+/// * Replace any U+0000 NULL or surrogate code points in input with U+FFFD REPLACEMENT CHARACTER (�).
 #[allow(dead_code)]
 pub(crate) fn preprocessing(input: String) -> String {
     //
@@ -523,6 +527,8 @@ fn start_valid_escape(it: &mut Peekable<Chars<'_>>) -> bool {
     false
 }
 
+
+/// https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-a-number
 fn start_number(it: &mut Peekable<Chars<'_>>) -> bool {
     if let Some(&current_char) = it.peek() {
         match current_char {
@@ -758,4 +764,31 @@ fn is_a_trailing_surrogate_hex(char_value: u32) -> bool {
 #[inline]
 fn is_max_allowed_code_point_hex(char_value: u32) -> bool {
     char_value > 0x10FFFF
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{utils, tokeniser::{preprocessing, consume_digit, is_digit}};
+
+    #[test]
+    fn test_preprocessing() {
+        utils::init_test_logger();
+
+        assert_eq!("Hello\nWorld", preprocessing("Hello\x0CWorld".to_string()), "Preprocessing for form feed");
+        assert_eq!("Hello\nWorld", preprocessing("Hello\rWorld".to_string()), "Preprocessing for Carriage return");
+        assert_eq!("Hello\nWorld", preprocessing("Hello\r\nWorld".to_string()), "Preprocessing for Carriage return + End of line");
+        assert_eq!("Hello\n\nWorld", preprocessing("Hello\r\n\nWorld".to_string()));
+    }
+
+    #[test]
+    fn test_utils_digit() {
+
+        let nb_54 = String::from("54");
+        let mut it_54 = nb_54.chars().peekable();
+        assert_eq!("54", consume_digit(&mut it_54), "Consuming only 2 digit");
+        
+        let nb_12 = String::from("12a2");
+        let mut it_mul = nb_12.chars().peekable();
+        assert_eq!("12", consume_digit(&mut it_mul), "Consume 2 digit and stop");
+    }
 }
