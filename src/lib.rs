@@ -1,5 +1,5 @@
 pub mod css;
-pub mod parser;
+pub mod tokeniser;
 
 #[cfg(test)]
 mod tests {
