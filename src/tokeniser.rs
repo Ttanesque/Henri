@@ -1,23 +1,22 @@
-
 use log::{debug, error, warn};
 
 use crate::utils::StreamIterator;
 
 // https://drafts.csswg.org/css-syntax/#tokenization
-#[derive(Debug, PartialEq)]
-pub(crate) enum HashTokenFlag {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum HashTokenFlag {
     Id,
     Unrestricted,
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum NumericValue {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum NumericValue {
     Integer,
     Number,
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum CssToken {
+#[derive(Debug, PartialEq, Clone)]
+pub enum CssToken {
     IdentToken(String),
     FunctionToken(String),
     AtKeywordToken(String),
@@ -76,7 +75,7 @@ pub(crate) fn preprocessing(input: String) -> String {
 
 // https://drafts.csswg.org/css-syntax/#consume-token
 #[allow(dead_code)]
-pub(crate) fn tokenization(stream: &mut dyn StreamIterator) -> Result<CssToken, String> {
+pub(crate) fn tokenization(stream: &mut impl StreamIterator<char>) -> Result<CssToken, String> {
     while let Some(current_input) = stream.peek() {
         match current_input {
             '\n' | '\t' | ' ' => {
@@ -221,7 +220,7 @@ pub(crate) fn tokenization(stream: &mut dyn StreamIterator) -> Result<CssToken, 
 }
 
 /// Take the input stream and consume all of the whitespace.
-fn consume_whitespaces(it: &mut dyn StreamIterator) {
+fn consume_whitespaces(it: &mut impl StreamIterator<char>) {
     while let Some(wp) = it.peek() {
         if is_whitespace(wp) {
             it.next();
@@ -232,7 +231,7 @@ fn consume_whitespaces(it: &mut dyn StreamIterator) {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-ident-like-token
-fn consume_ident_like_token(it: &mut dyn StreamIterator) -> CssToken {
+fn consume_ident_like_token(it: &mut impl StreamIterator<char>) -> CssToken {
     let string = consume_ident_sequence(it);
 
     it.next();
@@ -260,7 +259,7 @@ fn consume_ident_like_token(it: &mut dyn StreamIterator) -> CssToken {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-a-numeric-token
-fn consume_numeric_token(it: &mut dyn StreamIterator) -> CssToken {
+fn consume_numeric_token(it: &mut impl StreamIterator<char>) -> CssToken {
     let number = consume_number(it);
     let CssToken::NumberToken {
         sign,
@@ -282,6 +281,7 @@ fn consume_numeric_token(it: &mut dyn StreamIterator) -> CssToken {
             value,
         };
     } else if char_is_x(it, '%') {
+        it.next(); // consume %
         return CssToken::PercentageToken { sign, value };
     } else {
         return CssToken::NumberToken {
@@ -294,7 +294,7 @@ fn consume_numeric_token(it: &mut dyn StreamIterator) -> CssToken {
 
 /// Consume a String token with is ending_char.
 /// https://drafts.csswg.org/css-syntax/#consume-string-token
-fn consume_string_token(it: &mut dyn StreamIterator, ending_char: char) -> CssToken {
+fn consume_string_token(it: &mut impl StreamIterator<char>, ending_char: char) -> CssToken {
     let mut string = String::new();
     while let Some(curr_input) = it.peek() {
         it.next();
@@ -324,7 +324,7 @@ fn consume_string_token(it: &mut dyn StreamIterator, ending_char: char) -> CssTo
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-a-url-token
-fn consume_url_token(it: &mut dyn StreamIterator) -> CssToken {
+fn consume_url_token(it: &mut impl StreamIterator<char>) -> CssToken {
     let mut url = String::new();
     consume_whitespaces(it);
     while let Some(current_char) = it.peek() {
@@ -366,7 +366,7 @@ fn consume_url_token(it: &mut dyn StreamIterator) -> CssToken {
 }
 
 // https://drafts.csswg.org/css-syntax/#consume-an-ident-sequence
-fn consume_ident_sequence(it: &mut dyn StreamIterator) -> String {
+fn consume_ident_sequence(it: &mut impl StreamIterator<char>) -> String {
     let mut result = String::new();
 
     while let Some(current_char) = it.peek() {
@@ -404,7 +404,6 @@ fn consume_ident_sequence(it: &mut dyn StreamIterator) -> String {
                     result.push(current_char);
                     it.next();
                 } else {
-                    it.back();
                     return result;
                 }
             }
@@ -414,7 +413,7 @@ fn consume_ident_sequence(it: &mut dyn StreamIterator) -> String {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-a-number
-fn consume_number(it: &mut dyn StreamIterator) -> CssToken {
+fn consume_number(it: &mut impl StreamIterator<char>) -> CssToken {
     let mut type_num = false; // false integer, true number
     let mut sign = true; // tue +, false -; default true
     let mut number = String::new();
@@ -480,7 +479,7 @@ fn consume_number(it: &mut dyn StreamIterator) -> CssToken {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-an-escaped-code-point
-fn consume_escaped_code_point(it: &mut dyn StreamIterator) -> char {
+fn consume_escaped_code_point(it: &mut impl StreamIterator<char>) -> char {
     if let Some(current_char) = it.peek() {
         if is_hex_digit(current_char) {
             let mut hex_value = String::new();
@@ -514,7 +513,7 @@ fn consume_escaped_code_point(it: &mut dyn StreamIterator) -> char {
 }
 
 /// https://drafts.csswg.org/css-syntax/#starts-with-a-valid-escape
-fn start_valid_escape(it: &mut dyn StreamIterator) -> bool {
+fn start_valid_escape(it: &mut impl StreamIterator<char>) -> bool {
     if let Some(first_char) = it.peek() {
         if first_char != '\\' {
             return false;
@@ -530,7 +529,7 @@ fn start_valid_escape(it: &mut dyn StreamIterator) -> bool {
 }
 
 /// https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-a-number
-fn start_number(it: &mut dyn StreamIterator) -> bool {
+fn start_number(it: &mut impl StreamIterator<char>) -> bool {
     if let Some(current_char) = it.peek() {
         match current_char {
             '+' | '-' => {
@@ -570,7 +569,7 @@ fn start_number(it: &mut dyn StreamIterator) -> bool {
 }
 
 /// https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-an-ident-sequence
-fn start_ident_sequence(it: &mut dyn StreamIterator) -> bool {
+fn start_ident_sequence(it: &mut impl StreamIterator<char>) -> bool {
     if let Some(first_code) = it.peek() {
         match first_code {
             '\u{002D}' => {
@@ -600,7 +599,7 @@ fn start_ident_sequence(it: &mut dyn StreamIterator) -> bool {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-the-remnants-of-a-bad-url
-fn consume_remnants_bad_url(it: &mut dyn StreamIterator) {
+fn consume_remnants_bad_url(it: &mut impl StreamIterator<char>) {
     while let Some(current_char) = it.peek() {
         match current_char {
             ')' => {
@@ -621,7 +620,7 @@ fn consume_remnants_bad_url(it: &mut dyn StreamIterator) {
 // --- utils ---
 
 /// Consume a chunk of digit.
-fn consume_digit(it: &mut dyn StreamIterator) -> String {
+fn consume_digit(it: &mut impl StreamIterator<char>) -> String {
     let mut result = String::new();
 
     while let Some(current_char) = it.peek() {
@@ -637,7 +636,7 @@ fn consume_digit(it: &mut dyn StreamIterator) -> String {
 }
 
 #[inline]
-fn next_2_char_is(it: &mut dyn StreamIterator, first: char, second: char) -> bool {
+fn next_2_char_is(it: &mut impl StreamIterator<char>, first: char, second: char) -> bool {
     if let Some(first_char) = it.peek() {
         if first_char == first {
             it.next();
@@ -654,7 +653,7 @@ fn next_2_char_is(it: &mut dyn StreamIterator, first: char, second: char) -> boo
 }
 
 #[inline]
-fn next_char_is(it: &mut dyn StreamIterator, f: fn(char) -> bool) -> bool {
+fn next_char_is(it: &mut impl StreamIterator<char>, f: fn(char) -> bool) -> bool {
     it.next();
     debug!("before {:?}", it.peek());
     if let Some(next_char) = it.peek() {
@@ -670,7 +669,7 @@ fn next_char_is(it: &mut dyn StreamIterator, f: fn(char) -> bool) -> bool {
 
 /// check if char is x
 #[inline]
-fn char_is_x(it: &mut dyn StreamIterator, x: char) -> bool {
+fn char_is_x(it: &mut impl StreamIterator<char>, x: char) -> bool {
     if let Some(current) = it.peek() {
         return current == x;
     }
@@ -679,7 +678,7 @@ fn char_is_x(it: &mut dyn StreamIterator, x: char) -> bool {
 
 /// Check if the next char is x
 #[inline]
-fn next_char_is_x(it: &mut dyn StreamIterator, x: char) -> bool {
+fn next_char_is_x(it: &mut impl StreamIterator<char>, x: char) -> bool {
     it.next();
     if let Some(next_char) = it.peek() {
         debug!("next_char {} is {}", next_char, x);
@@ -692,13 +691,13 @@ fn next_char_is_x(it: &mut dyn StreamIterator, x: char) -> bool {
 
 /// Check if a char is string gard ' or ".
 #[inline]
-fn next_char_is_quote(it: &mut dyn StreamIterator) -> bool {
+fn next_char_is_quote(it: &mut impl StreamIterator<char>) -> bool {
     next_char_in(it, &['"', '\''])
 }
 
 /// Check if the next char is in the given array.
 #[inline]
-fn next_char_in(it: &mut dyn StreamIterator, x: &[char]) -> bool {
+fn next_char_in(it: &mut impl StreamIterator<char>, x: &[char]) -> bool {
     it.next();
     if let Some(next_char) = it.peek() {
         return x.contains(&next_char);
@@ -796,6 +795,8 @@ mod tests {
         utils::{test_utils, CharStream, StreamIterator},
     };
 
+    use super::consume_ident_sequence;
+
     #[test]
     fn test_preprocessing() {
         test_utils::init_test_logger();
@@ -829,24 +830,30 @@ mod tests {
         {
             let mut stream = CharStream::new("54".to_string());
             assert_eq!("54", consume_digit(&mut stream), "Consuming only 2 digit 54");
+            assert_eq!(Option::None, stream.peek());
 
             let mut stream = CharStream::new("12s".to_string());
             assert_eq!("12", consume_digit(&mut stream), "Consume 2 digit and stop 12s");
+            assert_eq!(Option::Some('s'), stream.peek());
         }
 
         // number detection
         {
             let mut stream = CharStream::new("-1.2".to_string());
             assert!(start_number(&mut stream), "Start number -1.2");
+            assert_eq!(Option::Some('-'), stream.peek());
 
             let mut stream = CharStream::new("24".to_string());
             assert!(start_number(&mut stream), "Start number 24");
+            assert_eq!(Option::Some('2'), stream.peek());
 
             let mut stream = CharStream::new("+34".to_string());
             assert!(start_number(&mut stream), "Start number +34");
+            assert_eq!(Option::Some('+'), stream.peek());
 
             let mut stream = CharStream::new("a4".to_string());
             assert!(!start_number(&mut stream), "Start number a4");
+            assert_eq!(Option::Some('a'), stream.peek());
         }
 
         // consume number
@@ -888,6 +895,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
 
             let nb_token = String::from("14");
             let mut stream = CharStream::new(nb_token);
@@ -899,6 +907,8 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
+
         }
         // numeric token production percentage token
         {
@@ -911,6 +921,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
 
             let nb_token = String::from("1.4%");
             let mut stream = CharStream::new(nb_token);
@@ -921,6 +932,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
 
             let nb_token = String::from("-1.4%");
             let mut stream = CharStream::new(nb_token);
@@ -931,6 +943,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
         }
 
         // numeric token production dimension token
@@ -946,6 +959,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
 
             let dim_token = String::from("4.2px");
             let mut stream = CharStream::new(dim_token);
@@ -958,6 +972,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
 
             let dim_token = String::from("4.2rem");
             let mut stream = CharStream::new(dim_token);
@@ -970,6 +985,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
 
             let dim_token = String::from("4.2em");
             let mut stream = CharStream::new(dim_token);
@@ -982,6 +998,15 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
+            assert_eq!(Option::None, stream.peek());
         }
+    }
+
+    #[test]
+    fn test_ident() {
+        let text = String::from("charset ");
+        let mut stream = CharStream::new(text);
+        assert_eq!("charset", consume_ident_sequence(&mut stream));
+        assert_eq!(Option::Some(' '), stream.peek());
     }
 }
