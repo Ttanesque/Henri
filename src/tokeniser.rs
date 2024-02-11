@@ -64,7 +64,6 @@ pub enum CssToken {
 /// * Replace any U+000D CARRIAGE RETURN (CR) code points, U+000C FORM FEED (FF) code points, or pairs
 ///   of U+000D CARRIAGE RETURN (CR) followed by U+000A LINE FEED (LF) in input by a single U+000A LINE FEED (LF) code point.
 /// * Replace any U+0000 NULL or surrogate code points in input with U+FFFD REPLACEMENT CHARACTER (�).
-#[allow(dead_code)]
 pub(crate) fn preprocessing(input: String) -> String {
     //
     let mut preprocess_input = input.replace("\r\n", "\n");
@@ -74,7 +73,6 @@ pub(crate) fn preprocessing(input: String) -> String {
 }
 
 // https://drafts.csswg.org/css-syntax/#consume-token
-#[allow(dead_code)]
 pub(crate) fn tokenization(stream: &mut impl StreamIterator<char>) -> Result<CssToken, String> {
     while let Some(current_input) = stream.peek() {
         match current_input {
@@ -97,6 +95,7 @@ pub(crate) fn tokenization(stream: &mut impl StreamIterator<char>) -> Result<Css
                         value: consume_ident_sequence(stream),
                     });
                 } else {
+                    stream.next();
                     return Ok(CssToken::DelimToken(current_input));
                 }
             }
@@ -116,6 +115,7 @@ pub(crate) fn tokenization(stream: &mut impl StreamIterator<char>) -> Result<Css
                 if start_number(stream) {
                     return Ok(consume_numeric_token(stream));
                 } else {
+                    stream.next();
                     return Ok(CssToken::DelimToken(current_input));
                 }
             }
@@ -129,6 +129,7 @@ pub(crate) fn tokenization(stream: &mut impl StreamIterator<char>) -> Result<Css
                 } else if start_ident_sequence(stream) {
                     return Ok(consume_ident_like_token(stream));
                 } else {
+                    stream.next();
                     return Ok(CssToken::DelimToken(current_input));
                 }
             }
@@ -147,6 +148,7 @@ pub(crate) fn tokenization(stream: &mut impl StreamIterator<char>) -> Result<Css
                 if start_number(stream) {
                     return Ok(consume_numeric_token(stream));
                 } else {
+                    stream.next();
                     return Ok(CssToken::DelimToken(current_input));
                 }
             }
@@ -231,6 +233,19 @@ fn consume_whitespaces(it: &mut impl StreamIterator<char>) {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-ident-like-token
+/// * Consume an ident sequence, and let string be the result.
+///
+/// * If string’s value is an ASCII case-insensitive match for "url", and the next input code
+/// point is U+0028 LEFT PARENTHESIS ((), consume it. While the next two input code points
+/// are whitespace, consume the next input code point. If the next one or two input code points
+/// are U+0022 QUOTATION MARK ("), U+0027 APOSTROPHE ('), or whitespace followed by U+0022
+/// QUOTATION MARK (") or U+0027 APOSTROPHE ('), then create a <function-token> with its
+/// value set to string and return it. Otherwise, consume a url token, and return it.
+///
+/// * Otherwise, if the next input code point is U+0028 LEFT PARENTHESIS ((), consume it.
+/// Create a <function-token> with its value set to string and return it.
+///
+/// * Otherwise, create an <ident-token> with its value set to string and return it.
 fn consume_ident_like_token(it: &mut impl StreamIterator<char>) -> CssToken {
     let string = consume_ident_sequence(it);
 
@@ -254,6 +269,7 @@ fn consume_ident_like_token(it: &mut impl StreamIterator<char>) -> CssToken {
             return CssToken::FunctionToken(string);
         }
     }
+    it.back(); // search by next has failed
 
     return CssToken::IdentToken(string);
 }
@@ -273,7 +289,7 @@ fn consume_numeric_token(it: &mut impl StreamIterator<char>) -> CssToken {
 
     if start_ident_sequence(it) {
         let unit = consume_ident_sequence(it);
-        debug!("{:?}", unit);
+        debug!("unit found {:?}", unit);
         return CssToken::DimensionToken {
             unit,
             sign,
@@ -365,7 +381,15 @@ fn consume_url_token(it: &mut impl StreamIterator<char>) -> CssToken {
     CssToken::UrlToken(url)
 }
 
-// https://drafts.csswg.org/css-syntax/#consume-an-ident-sequence
+/// https://drafts.csswg.org/css-syntax/#consume-an-ident-sequence
+/// Repeatedly consume the next input code point from the stream:
+///
+/// * ident code point
+///     * Append the code point to result.
+/// * the stream starts with a valid escape
+///     * Consume an escaped code point. Append the returned code point to result.
+/// * anything else
+///     * Reconsume the current input code point. Return result.
 fn consume_ident_sequence(it: &mut impl StreamIterator<char>) -> String {
     let mut result = String::new();
 
@@ -479,6 +503,19 @@ fn consume_number(it: &mut impl StreamIterator<char>) -> CssToken {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-an-escaped-code-point
+/// Consume the next input code point.
+///
+/// * hex digit
+///     * Consume as many hex digits as possible, but no more than 5.
+///       Note that this means 1-6 hex digits have been consumed in total.
+///       If the next input code point is whitespace, consume it as well.
+///       Interpret the hex digits as a hexadecimal number. If this number is zero,
+///       or is for a surrogate, or is greater than the maximum allowed code point,
+///       return U+FFFD REPLACEMENT CHARACTER (�). Otherwise, return the code point with that value.
+/// * EOF
+///     * This is a parse error. Return U+FFFD REPLACEMENT CHARACTER (�).
+/// * anything else
+///     * Return the current input code point.
 fn consume_escaped_code_point(it: &mut impl StreamIterator<char>) -> char {
     if let Some(current_char) = it.peek() {
         if is_hex_digit(current_char) {
@@ -487,7 +524,10 @@ fn consume_escaped_code_point(it: &mut impl StreamIterator<char>) -> char {
             it.next();
             let mut count = 0;
             while let Some(next_char) = it.peek() {
-                if !is_hex_digit(next_char) && count < 5 {
+                if !is_hex_digit(next_char) || count >= 5 {
+                    if is_whitespace(next_char) {
+                        it.next();
+                    }
                     break;
                 }
                 hex_value.push(next_char);
@@ -495,6 +535,7 @@ fn consume_escaped_code_point(it: &mut impl StreamIterator<char>) -> char {
                 count += 1;
             }
 
+            debug!("hex value found {}", hex_value);
             // already check that the char is in the hexrange
             let value = u32::from_str_radix(&hex_value, 16).unwrap();
 
@@ -504,6 +545,7 @@ fn consume_escaped_code_point(it: &mut impl StreamIterator<char>) -> char {
                 return char::from_u32(value).unwrap();
             }
         } else {
+            it.next();
             return current_char;
         }
     } else {
@@ -523,6 +565,7 @@ fn start_valid_escape(it: &mut impl StreamIterator<char>) -> bool {
             it.back(); // reset to is origin place for future
             return second_char != '\u{000A}';
         }
+        it.back();
     }
 
     false
@@ -547,7 +590,6 @@ fn start_number(it: &mut impl StreamIterator<char>) -> bool {
                         }
                         it.back();
                     }
-                    it.back();
                 }
                 it.back();
             }
@@ -569,6 +611,16 @@ fn start_number(it: &mut impl StreamIterator<char>) -> bool {
 }
 
 /// https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-an-ident-sequence
+/// Look at the first code point:
+/// * U+002D HYPHEN-MINUS
+///     * If the second code point is an ident-start code point or a U+002D HYPHEN-MINUS, or the second
+///       and third code points are a valid escape, return true. Otherwise, return false.
+/// * ident-start code point
+///     * Return true.
+/// * U+005C REVERSE SOLIDUS (\)
+///     * If the first and second code points are a valid escape, return true. Otherwise, return false.
+/// * anything else
+///     * Return false.
 fn start_ident_sequence(it: &mut impl StreamIterator<char>) -> bool {
     if let Some(first_code) = it.peek() {
         match first_code {
@@ -599,6 +651,13 @@ fn start_ident_sequence(it: &mut impl StreamIterator<char>) -> bool {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-the-remnants-of-a-bad-url
+/// * U+0029 RIGHT PARENTHESIS ()),
+///   EOF
+///   * Return.
+/// * The input stream starts with a valid escape
+///     * Consume an escaped code point. This allows an escaped right parenthesis ("\)") to be encountered without ending the <bad-url-token>. This is otherwise identical to the "anything else" clause.
+/// * anything else
+///     * Do nothing.
 fn consume_remnants_bad_url(it: &mut impl StreamIterator<char>) {
     while let Some(current_char) = it.peek() {
         match current_char {
@@ -719,7 +778,7 @@ fn is_digit(char_check: char) -> bool {
 
 #[inline]
 fn is_hex_digit(char_check: char) -> bool {
-    matches!(char_check, '0'..='9' | 'a'..='z' | 'A'..='Z')
+    matches!(char_check, '0'..='9' | 'a'..='f' | 'A'..='F')
 }
 
 #[inline]
@@ -787,15 +846,18 @@ fn is_max_allowed_code_point_hex(char_value: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use log::debug;
+
     use crate::{
         tokeniser::{
-            consume_digit, consume_number, consume_numeric_token, preprocessing, start_number,
-            CssToken, NumericValue,
+            consume_digit, consume_escaped_code_point, consume_number, consume_numeric_token,
+            consume_whitespaces, preprocessing, start_ident_sequence, start_number, CssToken,
+            NumericValue,
         },
         utils::{test_utils, CharStream, StreamIterator},
     };
 
-    use super::consume_ident_sequence;
+    use super::{consume_ident_sequence, consume_remnants_bad_url};
 
     #[test]
     fn test_preprocessing() {
@@ -823,37 +885,58 @@ mod tests {
     }
 
     #[test]
+    fn test_whitespace() {
+        let text = String::from("     )  ");
+        let mut stream = CharStream::new(text);
+        consume_whitespaces(&mut stream);
+        assert_eq!(Some(')'), stream.peek());
+
+        let text = String::from("v     )");
+        let mut stream = CharStream::new(text);
+        consume_whitespaces(&mut stream);
+        assert_eq!(Some('v'), stream.peek());
+    }
+
+    #[test]
     fn test_number() {
         test_utils::init_test_logger();
 
         // number consume by chunk
         {
             let mut stream = CharStream::new("54".to_string());
-            assert_eq!("54", consume_digit(&mut stream), "Consuming only 2 digit 54");
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(
+                "54",
+                consume_digit(&mut stream),
+                "Consuming only 2 digit 54"
+            );
+            assert_eq!(None, stream.peek());
 
             let mut stream = CharStream::new("12s".to_string());
-            assert_eq!("12", consume_digit(&mut stream), "Consume 2 digit and stop 12s");
-            assert_eq!(Option::Some('s'), stream.peek());
+            assert_eq!(
+                "12",
+                consume_digit(&mut stream),
+                "Consume 2 digit and stop 12s"
+            );
+            assert_eq!(Some('s'), stream.peek());
         }
 
         // number detection
         {
             let mut stream = CharStream::new("-1.2".to_string());
             assert!(start_number(&mut stream), "Start number -1.2");
-            assert_eq!(Option::Some('-'), stream.peek());
+            assert_eq!(Some('-'), stream.peek());
 
             let mut stream = CharStream::new("24".to_string());
             assert!(start_number(&mut stream), "Start number 24");
-            assert_eq!(Option::Some('2'), stream.peek());
+            assert_eq!(Some('2'), stream.peek());
 
             let mut stream = CharStream::new("+34".to_string());
             assert!(start_number(&mut stream), "Start number +34");
-            assert_eq!(Option::Some('+'), stream.peek());
+            assert_eq!(Some('+'), stream.peek());
 
             let mut stream = CharStream::new("a4".to_string());
             assert!(!start_number(&mut stream), "Start number a4");
-            assert_eq!(Option::Some('a'), stream.peek());
+            assert_eq!(Some('a'), stream.peek());
         }
 
         // consume number
@@ -895,7 +978,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
 
             let nb_token = String::from("14");
             let mut stream = CharStream::new(nb_token);
@@ -907,8 +990,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
-
+            assert_eq!(None, stream.peek());
         }
         // numeric token production percentage token
         {
@@ -921,7 +1003,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
 
             let nb_token = String::from("1.4%");
             let mut stream = CharStream::new(nb_token);
@@ -932,7 +1014,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
 
             let nb_token = String::from("-1.4%");
             let mut stream = CharStream::new(nb_token);
@@ -943,7 +1025,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
         }
 
         // numeric token production dimension token
@@ -959,7 +1041,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
 
             let dim_token = String::from("4.2px");
             let mut stream = CharStream::new(dim_token);
@@ -972,7 +1054,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
 
             let dim_token = String::from("4.2rem");
             let mut stream = CharStream::new(dim_token);
@@ -985,7 +1067,7 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
 
             let dim_token = String::from("4.2em");
             let mut stream = CharStream::new(dim_token);
@@ -998,15 +1080,100 @@ mod tests {
                 },
                 consume_numeric_token(&mut stream)
             );
-            assert_eq!(Option::None, stream.peek());
+            assert_eq!(None, stream.peek());
         }
     }
 
     #[test]
-    fn test_ident() {
-        let text = String::from("charset ");
+    fn test_ident_sequence() {
+        test_utils::init_test_logger();
+
+        // start ident sequence
+        {
+            let text = String::from("--\\n");
+            let mut stream = CharStream::new(text);
+            assert!(start_ident_sequence(&mut stream));
+            assert_eq!(Some('-'), stream.peek());
+
+            let text = String::from("a");
+            let mut stream = CharStream::new(text);
+            assert!(start_ident_sequence(&mut stream));
+            assert_eq!(Some('a'), stream.peek());
+
+            let text = String::from("\\");
+            let mut stream = CharStream::new(text);
+            assert!(!start_ident_sequence(&mut stream));
+            assert_eq!(Some('\\'), stream.peek());
+        }
+
+        // consume indent sequence
+        {
+            let text = String::from("charset ");
+            let mut stream = CharStream::new(text);
+            assert_eq!("charset", consume_ident_sequence(&mut stream));
+            assert_eq!(Some(' '), stream.peek());
+
+            let text = String::from("olivier,");
+            let mut stream = CharStream::new(text);
+            assert_eq!("olivier", consume_ident_sequence(&mut stream));
+            assert_eq!(Some(','), stream.peek());
+        }
+    }
+
+    #[test]
+    fn test_escaped() {
+        test_utils::init_test_logger();
+
+        debug!("parsing error");
+        // escaped
+        let text = String::from("n)");
         let mut stream = CharStream::new(text);
-        assert_eq!("charset", consume_ident_sequence(&mut stream));
-        assert_eq!(Option::Some(' '), stream.peek());
+        assert_eq!('n', consume_escaped_code_point(&mut stream));
+        assert_eq!(Some(')'), stream.peek());
+
+        // escaped hexa
+        {
+            let text = String::from("27EB)");
+            let mut stream = CharStream::new(text);
+            assert_eq!('⟫', consume_escaped_code_point(&mut stream));
+            assert_eq!(Some(')'), stream.peek());
+
+            let text = String::from("0000 )");
+            let mut stream = CharStream::new(text);
+            assert_eq!('�', consume_escaped_code_point(&mut stream));
+            assert_eq!(Some(')'), stream.peek());
+
+            let text = String::from("FFFFFF)");
+            let mut stream = CharStream::new(text);
+            assert_eq!('�', consume_escaped_code_point(&mut stream));
+            assert_eq!(Some(')'), stream.peek());
+        }
+
+        // eof parsing error �
+        let text = String::from("");
+        let mut stream = CharStream::new(text);
+        assert_eq!('�', consume_escaped_code_point(&mut stream));
+        assert_eq!(None, stream.peek());
+    }
+
+    #[test]
+    fn test_url() {
+        // test bad url recovery
+        {
+            let text = String::from("eafuiahf)");
+            let mut stream = CharStream::new(text);
+            consume_remnants_bad_url(&mut stream);
+            assert_eq!(None, stream.peek());
+
+            let text = String::from("eafuiahf");
+            let mut stream = CharStream::new(text);
+            consume_remnants_bad_url(&mut stream);
+            assert_eq!(None, stream.peek());
+
+            let text = String::from("eafuiahf\\)dqsdqsd)");
+            let mut stream = CharStream::new(text);
+            consume_remnants_bad_url(&mut stream);
+            assert_eq!(None, stream.peek());
+        }
     }
 }
