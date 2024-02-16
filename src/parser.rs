@@ -2,7 +2,7 @@ use crate::{
     tokeniser::{preprocessing, tokenization, CssToken},
     utils::{self, CharStream, StreamIterator, TokenStream},
 };
-use log::{self, debug, warn};
+use log::{self, debug, error, warn};
 use url::Url;
 
 pub struct Declaration {
@@ -76,9 +76,11 @@ impl CssStyleSheet {
     }
 }
 
+#[derive(Debug)]
 pub enum ParseError {
     GetFileError(utils::ReadFileError),
     UnknowToken(CssToken),
+    ParseError(String),
 }
 
 impl From<utils::ReadFileError> for ParseError {
@@ -101,14 +103,18 @@ pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
                 if let Some(rule) = consume_qualified_rule(&mut token_stream, None, false) {
                     rules.push(rule);
                 }
-            },
+            }
         }
     }
 
     Ok(CssStyleSheet::new(url, rules))
 }
 
-pub fn consume_qualified_rule(tokens: &mut impl StreamIterator<CssToken>, stop_token: Option<CssToken>, nested: bool) -> Option<Rule> {
+pub fn consume_qualified_rule(
+    tokens: &mut impl StreamIterator<CssToken>,
+    stop_token: Option<CssToken>,
+    nested: bool,
+) -> Option<Rule> {
     let mut prelude: Vec<ComponentValue> = Vec::new();
 
     if let Some(token) = tokens.peek() {
@@ -121,10 +127,77 @@ pub fn consume_qualified_rule(tokens: &mut impl StreamIterator<CssToken>, stop_t
                 prelude.push(ComponentValue::PreservedToken(token));
             }
             CssToken::AcoladeOpToken => {}
-            _ =>  {}
+            _ => {
+                prelude.push(consume_component_value(tokens));
+            }
         }
     }
     None
+}
+
+fn consume_component_value(
+    tokens: &mut impl StreamIterator<CssToken>,
+) -> Result<ComponentValue, ParseError> {
+    if let Some(token) = tokens.peek() {
+        match token {
+            CssToken::AcoladeOpToken | CssToken::CrochetOpToken | CssToken::ParenthOpToken => {
+                Err(ParseError::UnknowToken(token))
+            }
+            CssToken::FunctionToken(_) => consume_function(tokens),
+            _ => {
+                tokens.next();
+                Ok(ComponentValue::PreservedToken(token))
+            }
+        }
+    }
+}
+
+/// https://drafts.csswg.org/css-syntax/#consume-a-function
+/// To consume a function from a token stream input:
+/// Assert: The next token is a <function-token>.
+///
+/// Consume a token from input, and let function be a new function with its name equal the returned token’s value, and a value set to an empty list.
+/// Process input:
+/// * <eof-token> <)-token>
+///     * Discard a token from input. Return function.
+/// * anything else
+///     * Consume a component value from input and append the result to function’s value.
+fn consume_function(
+    tokens: &mut impl StreamIterator<CssToken>,
+) -> Result<ComponentValue, ParseError> {
+    if let Some(CssToken::FunctionToken(name)) = tokens.peek() {
+        let mut values: Vec<ComponentValue> = Vec::new();
+
+        tokens.next();
+        while let Some(token) = tokens.peek() {
+            match token {
+                CssToken::ParenthClToken => {
+                    tokens.next();
+                    break;
+                }
+                _ => {
+                    let val = consume_component_value(tokens);
+                    if val.is_ok() {
+                        values.push(val.unwrap());
+                    } else {
+                        error!("error in function body parsing {:#?}", val.err())
+                    }
+                }
+            }
+        }
+        return Ok(ComponentValue::Function {
+            name,
+            component_value: values,
+        });
+    }
+    Err(ParseError::ParseError(String::from(
+        "consuming function without function token ??",
+    )))
+}
+
+/// https://drafts.csswg.org/css-syntax/#consume-a-simple-block
+fn consume_simple_bloc(tokens: &mut impl StreamIterator<CssToken>) -> ComponentValue {
+    todo!()
 }
 
 /// https://drafts.csswg.org/css-syntax/#normalize-into-a-token-stream
