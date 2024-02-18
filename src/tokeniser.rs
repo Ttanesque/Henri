@@ -2,7 +2,7 @@ use log::{debug, error, warn};
 
 use crate::utils::StreamIterator;
 
-// https://drafts.csswg.org/css-syntax/#tokenization
+// <https://drafts.csswg.org/css-syntax/#tokenization>
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum HashTokenFlag {
     Id,
@@ -72,7 +72,7 @@ pub(crate) fn preprocessing(input: String) -> String {
     preprocess_input.replace("\x00", "�")
 }
 
-// https://drafts.csswg.org/css-syntax/#consume-token
+// <https://drafts.csswg.org/css-syntax/#consume-token>
 pub(crate) fn tokenization(stream: &mut impl StreamIterator<char>) -> Result<CssToken, String> {
     while let Some(current_input) = stream.peek() {
         match current_input {
@@ -232,7 +232,7 @@ fn consume_whitespaces(it: &mut impl StreamIterator<char>) {
     }
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-ident-like-token
+/// <https://drafts.csswg.org/css-syntax/#consume-ident-like-token>
 /// * Consume an ident sequence, and let string be the result.
 ///
 /// * If string’s value is an ASCII case-insensitive match for "url", and the next input code
@@ -274,7 +274,7 @@ fn consume_ident_like_token(it: &mut impl StreamIterator<char>) -> CssToken {
     return CssToken::IdentToken(string);
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-a-numeric-token
+/// <https://drafts.csswg.org/css-syntax/#consume-a-numeric-token>
 fn consume_numeric_token(it: &mut impl StreamIterator<char>) -> CssToken {
     let number = consume_number(it);
     let CssToken::NumberToken {
@@ -309,7 +309,7 @@ fn consume_numeric_token(it: &mut impl StreamIterator<char>) -> CssToken {
 }
 
 /// Consume a String token with is ending_char.
-/// https://drafts.csswg.org/css-syntax/#consume-string-token
+/// <https://drafts.csswg.org/css-syntax/#consume-string-token>
 fn consume_string_token(it: &mut impl StreamIterator<char>, ending_char: char) -> CssToken {
     let mut string = String::new();
     while let Some(curr_input) = it.peek() {
@@ -339,7 +339,7 @@ fn consume_string_token(it: &mut impl StreamIterator<char>, ending_char: char) -
     CssToken::StringToken(string)
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-a-url-token
+/// <https://drafts.csswg.org/css-syntax/#consume-a-url-token>
 fn consume_url_token(it: &mut impl StreamIterator<char>) -> CssToken {
     let mut url = String::new();
     consume_whitespaces(it);
@@ -381,7 +381,7 @@ fn consume_url_token(it: &mut impl StreamIterator<char>) -> CssToken {
     CssToken::UrlToken(url)
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-an-ident-sequence
+/// <https://drafts.csswg.org/css-syntax/#consume-an-ident-sequence>
 /// Repeatedly consume the next input code point from the stream:
 ///
 /// * ident code point
@@ -436,7 +436,7 @@ fn consume_ident_sequence(it: &mut impl StreamIterator<char>) -> String {
     result
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-a-number
+/// <https://drafts.csswg.org/css-syntax/#consume-a-number>
 fn consume_number(it: &mut impl StreamIterator<char>) -> CssToken {
     let mut type_num = false; // false integer, true number
     let mut sign = true; // tue +, false -; default true
@@ -502,7 +502,7 @@ fn consume_number(it: &mut impl StreamIterator<char>) -> CssToken {
     }
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-an-escaped-code-point
+/// <https://drafts.csswg.org/css-syntax/#consume-an-escaped-code-point>
 /// Consume the next input code point.
 ///
 /// * hex digit
@@ -554,7 +554,7 @@ fn consume_escaped_code_point(it: &mut impl StreamIterator<char>) -> char {
     }
 }
 
-/// https://drafts.csswg.org/css-syntax/#starts-with-a-valid-escape
+/// <https://drafts.csswg.org/css-syntax/#starts-with-a-valid-escape>
 fn start_valid_escape(it: &mut impl StreamIterator<char>) -> bool {
     if let Some(first_char) = it.peek() {
         if first_char != '\\' {
@@ -571,7 +571,7 @@ fn start_valid_escape(it: &mut impl StreamIterator<char>) -> bool {
     false
 }
 
-/// https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-a-number
+/// <https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-a-number>
 fn start_number(it: &mut impl StreamIterator<char>) -> bool {
     if let Some(current_char) = it.peek() {
         match current_char {
@@ -610,7 +610,7 @@ fn start_number(it: &mut impl StreamIterator<char>) -> bool {
     false
 }
 
-/// https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-an-ident-sequence
+/// <https://drafts.csswg.org/css-syntax/#check-if-three-code-points-would-start-an-ident-sequence>
 /// Look at the first code point:
 /// * U+002D HYPHEN-MINUS
 ///     * If the second code point is an ident-start code point or a U+002D HYPHEN-MINUS, or the second
@@ -650,7 +650,7 @@ fn start_ident_sequence(it: &mut impl StreamIterator<char>) -> bool {
     false
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-the-remnants-of-a-bad-url
+/// <https://drafts.csswg.org/css-syntax/#consume-the-remnants-of-a-bad-url>
 /// * U+0029 RIGHT PARENTHESIS ()),
 ///   EOF
 ///   * Return.
@@ -806,13 +806,13 @@ fn is_non_ascii_ident(char_check: char) -> bool {
         || char_check > '\u{10000}'
 }
 
-/// https://drafts.csswg.org/css-syntax/#ident-start-code-point
+/// <https://drafts.csswg.org/css-syntax/#ident-start-code-point
 #[inline]
 fn is_ident_start_code_point(char_check: char) -> bool {
     is_letter(char_check) || is_non_ascii_ident(char_check) || char_check == '_'
 }
 
-/// https://drafts.csswg.org/css-syntax/#ident-code-point
+/// <https://drafts.csswg.org/css-syntax/#ident-code-point
 #[inline]
 fn is_indent_code_point(char_check: char) -> bool {
     is_ident_start_code_point(char_check) || is_digit(char_check) || char_check == '\u{002D}'
@@ -820,25 +820,25 @@ fn is_indent_code_point(char_check: char) -> bool {
 
 // --- hex ---
 
-/// https://infra.spec.whatwg.org/#surrogate
+/// <https://infra.spec.whatwg.org/#surrogate
 #[inline]
 fn is_a_surrogate_hex(char_value: u32) -> bool {
     is_a_leading_surrogate_hex(char_value) || is_a_trailing_surrogate_hex(char_value)
 }
 
-/// https://infra.spec.whatwg.org/#leading-surrogate
+/// <https://infra.spec.whatwg.org/#leading-surrogate
 #[inline]
 fn is_a_leading_surrogate_hex(char_value: u32) -> bool {
     char_value >= 0xD800 && char_value <= 0xDBFF
 }
 
-/// https://infra.spec.whatwg.org/#trailing-surrogate
+/// <https://infra.spec.whatwg.org/#trailing-surrogate
 #[inline]
 fn is_a_trailing_surrogate_hex(char_value: u32) -> bool {
     char_value >= 0xDC00 && char_value <= 0xDFFF
 }
 
-/// https://drafts.csswg.org/css-syntax/#maximum-allowed-code-point
+/// <https://drafts.csswg.org/css-syntax/#maximum-allowed-code-point
 #[inline]
 fn is_max_allowed_code_point_hex(char_value: u32) -> bool {
     char_value > 0x10FFFF

@@ -81,6 +81,8 @@ pub enum ParseError {
     GetFileError(utils::ReadFileError),
     UnknowToken(CssToken),
     ParseError(String),
+    NoToken,
+    BadToken(String),
 }
 
 impl From<utils::ReadFileError> for ParseError {
@@ -99,6 +101,11 @@ pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
             CssToken::WhitespaceToken | CssToken::CdcToken | CssToken::CdoToken => {
                 token_stream.next();
             }
+            CssToken::AtKeywordToken(_) => {
+                if let Some(rule) = consume_at_rule(&mut token_stream, false) {
+                    rules.push(rule);
+                }
+            }
             _ => {
                 if let Some(rule) = consume_qualified_rule(&mut token_stream, None, false) {
                     rules.push(rule);
@@ -110,7 +117,53 @@ pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
     Ok(CssStyleSheet::new(url, rules))
 }
 
-pub fn consume_qualified_rule(
+/// https://drafts.csswg.org/css-syntax/#consume-at-rule
+/// 
+/// Assert: The next token is an <at-keyword-token>.
+/// 
+/// Consume a token from input, and let rule be a new at-rule with its name set to the returned token’s value, its prelude initially set to an empty list, and no declarations or child rules.
+/// 
+/// Process input:
+/// 
+/// * \<semicolon-token> \<EOF-token>
+///     * Discard a token from input. If rule is valid in the current context, return it; otherwise return nothing. 
+/// * <}-token>
+///     * If nested is true:
+///         * If rule is valid in the current context, return it.
+///         * Otherwise, return nothing.
+///     * Otherwise, consume a token and append the result to rule’s prelude.
+/// * <{-token>
+///     * Consume a block from input, and assign the results to rule’s lists of declarations and child rules.
+///     If rule is valid in the current context, return it. Otherwise, return nothing.
+/// * anything else
+///     * Consume a component value from input and append the returned value to rule’s prelude. 
+fn consume_at_rule(tokens: &mut impl StreamIterator<CssToken>, nested: bool) -> Option<Rule> {
+    if let Some(CssToken::AtKeywordToken(name)) = tokens.peek() {
+        tokens.next();
+        let comp_values: Vec<ComponentValue> = Vec::new();
+
+        return Some(Rule::AtRule { name, component_value: comp_values });
+    }
+    None
+}
+
+/// <https://drafts.csswg.org/css-syntax/#consume-qualified-rule>
+///
+/// Let rule be a new qualified rule with its prelude, declarations, and child rules all initially set to empty lists.
+/// Process input:
+/// * <EOF-token> stop token (if passed)
+///     * This is a parse error. Return nothing.
+/// * <}-token>
+///     * This is a parse error. If nested is true, return nothing. Otherwise, consume a token and append the result to rule’s prelude.
+/// * <{-token>
+///     * If the first two non-<whitespace-token> values of rule’s prelude are an <ident-token> whose value starts with "--" followed by a <colon-token>, then:
+///         * If nested is true, consume the remnants of a bad declaration from input, with nested set to true, and return nothing.
+///         * If nested is false, consume a block from input, and return nothing.
+///         * Otherwise, consume a block from input, and assign the results to rule’s lists of declarations and child rules.
+/// If rule is valid in the current context, return it; otherwise return nothing.
+/// * anything else
+///     * Consume a component value from input and append the result to rule’s prelude.
+fn consume_qualified_rule(
     tokens: &mut impl StreamIterator<CssToken>,
     stop_token: Option<CssToken>,
     nested: bool,
@@ -118,6 +171,9 @@ pub fn consume_qualified_rule(
     let mut prelude: Vec<ComponentValue> = Vec::new();
 
     if let Some(token) = tokens.peek() {
+        if stop_token.is_some() && token == stop_token? {
+            return None;
+        }
         match token {
             CssToken::AcoladeClToken => {
                 if nested {
@@ -128,31 +184,47 @@ pub fn consume_qualified_rule(
             }
             CssToken::AcoladeOpToken => {}
             _ => {
-                prelude.push(consume_component_value(tokens));
+                let val = consume_component_value(tokens);
+                if val.is_ok() {
+                    prelude.push(val.ok()?);
+                } else {
+                    error!("Error when parsing a component value {:#?}", val.err()?);
+                }
             }
         }
     }
     None
 }
 
+/// <https://drafts.csswg.org/css-syntax/#consume-a-component-value>
+/// To consume a component value from a token stream input:
+/// Process input:
+/// * <{-token> <[-token> <(-token>
+///     * Consume a simple block from input and return the result.
+/// * <function-token>
+///     * Consume a function from input and return the result.
+/// * anything else
+///     * Consume a token from input and return the result.
 fn consume_component_value(
     tokens: &mut impl StreamIterator<CssToken>,
 ) -> Result<ComponentValue, ParseError> {
     if let Some(token) = tokens.peek() {
         match token {
             CssToken::AcoladeOpToken | CssToken::CrochetOpToken | CssToken::ParenthOpToken => {
-                Err(ParseError::UnknowToken(token))
+                return consume_simple_bloc(tokens);
             }
-            CssToken::FunctionToken(_) => consume_function(tokens),
+            CssToken::FunctionToken(_) => return consume_function(tokens),
             _ => {
                 tokens.next();
-                Ok(ComponentValue::PreservedToken(token))
+                return Ok(ComponentValue::PreservedToken(token));
             }
         }
     }
+
+    Err(ParseError::NoToken)
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-a-function
+/// <https://drafts.csswg.org/css-syntax/#consume-a-function>
 /// To consume a function from a token stream input:
 /// Assert: The next token is a <function-token>.
 ///
@@ -195,13 +267,63 @@ fn consume_function(
     )))
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-a-simple-block
-fn consume_simple_bloc(tokens: &mut impl StreamIterator<CssToken>) -> ComponentValue {
-    todo!()
+/// <https://drafts.csswg.org/css-syntax/#consume-a-simple-block>
+/// To consume a simple block from a token stream input:
+/// 
+/// Assert: the next token of input is <{-token>, <[-token>, or <(-token>.
+/// 
+/// Let ending token be the mirror variant of the next token. (E.g. if it was called with <[-token>, the ending token is <]-token>.)
+/// 
+/// Let block be a new simple block with its associated token set to the next token and with its value initially set to an empty list.
+/// 
+/// Discard a token from input.
+/// 
+/// Process input:
+/// * <eof-token> ending token
+///     * Discard a token from input. Return block.
+/// * anything else
+///     * Consume a component value from input and append the result to block’s value.
+fn consume_simple_bloc(
+    tokens: &mut impl StreamIterator<CssToken>,
+) -> Result<ComponentValue, ParseError> {
+    if let Some(ending) = tokens.peek() {
+        if matches!(
+            ending,
+            CssToken::AcoladeOpToken | CssToken::CrochetOpToken | CssToken::ParenthOpToken
+        ) {
+            tokens.next();
+            let mut comp_values: Vec<ComponentValue> = Vec::new();
+
+            while let Some(token) = tokens.peek() {
+                if token == ending {
+                    break;
+                }
+                let res = consume_component_value(tokens);
+                if res.is_ok() {
+                    comp_values.push(res.unwrap());
+                }
+            }
+
+            return Ok(ComponentValue::SimpleBlock {
+                associated_token: ending,
+                value: comp_values,
+            });
+        }
+        return Err(ParseError::BadToken(String::from("No valid opening token")));
+    }
+    Err(ParseError::NoToken)
 }
 
-/// https://drafts.csswg.org/css-syntax/#normalize-into-a-token-stream
-///
+/// <https://drafts.csswg.org/css-syntax/#normalize-into-a-token-stream>
+/// To normalize into a token stream a given input:
+/// 
+/// If input is already a token stream, return it.
+/// 
+/// If input is a list of CSS tokens and/or component values, create a new token stream with input as its tokens, and return it.
+/// 
+/// If input is a string, then filter code points from input, tokenize the result, then create a new token stream with those tokens as its tokens, and return it.
+/// 
+/// Assert: Only the preceding types should be passed as input.
 pub fn normalize(input: String) -> impl StreamIterator<CssToken> {
     let mut input_stream = CharStream::new(preprocessing(input));
     let mut tokens: Vec<CssToken> = Vec::new();
