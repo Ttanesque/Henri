@@ -1,9 +1,6 @@
-use std::{
-    default,
-    fs::File,
-    io::{self, Read},
-    path,
-};
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{self, Read};
 
 use url::Url;
 
@@ -13,18 +10,30 @@ use crate::tokeniser::CssToken;
 pub(crate) struct CharStream {
     index: usize,
     chars: Vec<char>,
+    marks: VecDeque<usize>,
 }
 
 #[derive(Debug)]
 pub(crate) struct TokenStream {
     index: usize,
     tokens: Vec<CssToken>,
+    marks: VecDeque<usize>,
 }
 
+/// Interface for explore a stream<i> with all the functionnality needed for the parsing.
 pub trait StreamIterator<I> {
+    /// Go to the next object in the stream. If it's in the end make nothing.
     fn next(&mut self);
+    /// Go back in the stream. If it's the start make nothing.
     fn back(&mut self);
+    /// Return of a copy of the current object otherwise return None.
     fn peek(&self) -> Option<I>;
+    /// Place a marker to go back in the stream.
+    fn mark(&mut self);
+    /// Go back to the last marker and unmark it. If not return false.
+    fn unmark(&mut self) -> bool;
+    /// Discard the latest mark push.
+    fn discard_mark(&mut self);
 }
 
 impl CharStream {
@@ -32,13 +41,18 @@ impl CharStream {
         CharStream {
             index: 0,
             chars: chars_to_stream.chars().collect(),
+            marks: VecDeque::new(),
         }
     }
 }
 
 impl TokenStream {
     pub fn new(tokens: Vec<CssToken>) -> TokenStream {
-        TokenStream { index: 0, tokens }
+        TokenStream {
+            index: 0,
+            tokens,
+            marks: VecDeque::new(),
+        }
     }
 }
 
@@ -58,6 +72,22 @@ impl StreamIterator<char> for CharStream {
     fn peek(&self) -> Option<char> {
         self.chars.get(self.index).copied()
     }
+
+    fn mark(&mut self) {
+        self.marks.push_back(self.index)
+    }
+
+    fn unmark(&mut self) -> bool {
+        if let Some(index) = self.marks.pop_front() {
+            self.index = index;
+            return true;
+        }
+        false
+    }
+
+    fn discard_mark(&mut self) {
+        self.marks.pop_front();
+    }
 }
 
 impl StreamIterator<CssToken> for TokenStream {
@@ -72,11 +102,30 @@ impl StreamIterator<CssToken> for TokenStream {
     fn peek(&self) -> Option<CssToken> {
         self.tokens.get(self.index).cloned()
     }
+
+    fn mark(&mut self) {
+        self.marks.push_back(self.index)
+    }
+
+    fn unmark(&mut self) -> bool {
+        if let Some(index) = self.marks.pop_front() {
+            self.index = index;
+            return true;
+        }
+        false
+    }
+
+    fn discard_mark(&mut self) {
+        self.marks.pop_front();
+    }
 }
 
+/// Error description for file download error.
 #[derive(Debug)]
 pub enum ReadFileError {
+    /// Unsuported scheme
     SchemeError(String),
+    /// Invalid path for a path from file scheme
     LocationParsingError(()),
     FileReadError(io::Error),
     RequestError(reqwest::Error),
@@ -100,7 +149,7 @@ impl From<reqwest::Error> for ReadFileError {
     }
 }
 
-/// Get the data from a url
+/// Get the data from a url, handle the file and http scheme
 pub(crate) fn get_data(location: &Url) -> Result<String, ReadFileError> {
     match location.scheme() {
         "file" => {
