@@ -1,4 +1,4 @@
-pub mod css;
+pub mod parser;
 pub(crate) mod tokeniser;
 pub(crate) mod utils;
 
