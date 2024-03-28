@@ -128,7 +128,7 @@ pub enum ReadFileError {
     /// Invalid path for a path from file scheme
     LocationParsingError(()),
     FileReadError(io::Error),
-    RequestError(reqwest::Error),
+    RequestError(attohttpc::Error),
 }
 
 impl From<()> for ReadFileError {
@@ -143,8 +143,8 @@ impl From<io::Error> for ReadFileError {
     }
 }
 
-impl From<reqwest::Error> for ReadFileError {
-    fn from(value: reqwest::Error) -> Self {
+impl From<attohttpc::Error> for ReadFileError {
+    fn from(value: attohttpc::Error) -> Self {
         ReadFileError::RequestError(value)
     }
 }
@@ -160,8 +160,7 @@ pub(crate) fn get_data(location: &Url) -> Result<String, ReadFileError> {
             Ok(buff)
         }
         "http" | "https" => {
-            let resp = reqwest::blocking::get(location.as_str())?;
-            let body = resp.text()?;
+            let body = attohttpc::get(location.as_str()).send()?.text()?;
             Ok(body)
         }
         _ => Err(ReadFileError::SchemeError("no valid scheme".to_string())),
