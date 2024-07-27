@@ -7,7 +7,7 @@ use url::Url;
 
 pub struct Declaration {
     name: String,
-    component_value: Vec<ComponentValue>,
+    component_values: Vec<ComponentValue>,
     important: bool,
     original_text: Option<String>,
 }
@@ -67,7 +67,7 @@ impl CssStyleSheet {
             title: location.path().to_string(),
             alternate: false,
             disabled: false,
-            rules: Vec::new(),
+            rules,
             origin_clean: false,
             constructed: false,
             disallow_modification: false,
@@ -199,33 +199,37 @@ fn consume_at_rule(tokens: &mut impl StreamIterator<CssToken>, nested: bool) -> 
 ///
 /// Let decls be an empty list of declarations, and rules be an empty list of rules.
 ///
-/// Discard a token from input. Consume a block’s contents from input and assign the results to decls and rules. Discard a token from input.
+/// Discard a token from input. Consume a block’s contents from input and assign the results to decls and rules.
+/// Discard a token from input.
 ///
 /// Return decls and rules.
 fn consume_block(tokens: &mut impl StreamIterator<CssToken>) -> (Vec<Declaration>, Vec<Rule>) {
     if let Some(CssToken::AcoladeOpToken) = tokens.peek() {
         tokens.next();
+        return consume_block_content(tokens);
     }
     (Vec::new(), Vec::new())
 }
 
 /// <https://drafts.csswg.org/css-syntax/#consume-block-contents>
-/// 
+///
 /// Let decls be an empty list of declarations, and rules be an empty list of rules.
-/// 
+///
 /// Process input:
-/// 
+///
 /// * \<whitespace-token> \<semicolon-token>
-///     * Discard a token from input. 
+///     * Discard a token from input.
 /// * \<EOF-token> <}-token>
-///     * Return decls and rules. 
+///     * Return decls and rules.
 /// * \<at-keyword-token>
-///     * Consume an at-rule from input, with nested set to true. If a rule was returned, append it to rules. 
+///     * Consume an at-rule from input, with nested set to true. If a rule was returned, append it to rules.
 /// * anything else
 ///     * Mark input.
 ///     * Consume a declaration from input, with nested set to true. If a declaration was returned, append it to decls, and discard a mark from input.
 ///     * Otherwise, restore a mark from input, then consume a qualified rule from input, with nested set to true, and <semicolon-token> as the stop token. If a rule was returned, append it to rules.
-fn consume_block_content(tokens: &mut impl StreamIterator<CssToken>) -> (Vec<Declaration>, Vec<Rule>) {
+fn consume_block_content(
+    tokens: &mut impl StreamIterator<CssToken>,
+) -> (Vec<Declaration>, Vec<Rule>) {
     let mut rules: Vec<Rule> = Vec::new();
     let mut declarations: Vec<Declaration> = Vec::new();
 
@@ -242,11 +246,13 @@ fn consume_block_content(tokens: &mut impl StreamIterator<CssToken>) -> (Vec<Dec
             _ => {
                 tokens.mark();
                 if let Some(decls) = consume_declaration(tokens, true) {
-                    declarations.append(decls);
+                    declarations.push(decls);
                     tokens.discard_mark();
                 } else {
                     tokens.unmark();
-                    if let Some(rls) = consume_qualified_rule(tokens, Some(CssToken::SemicolonToken), true) {
+                    if let Some(rls) =
+                        consume_qualified_rule(tokens, Some(CssToken::SemicolonToken), true)
+                    {
                         rules.push(rls);
                     }
                 }
@@ -257,9 +263,171 @@ fn consume_block_content(tokens: &mut impl StreamIterator<CssToken>) -> (Vec<Dec
     (declarations, rules)
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-a-declaration
-fn consume_declaration(tokens: &mut impl StreamIterator<CssToken>, arg: bool) -> Option<&mut Vec<Declaration>> {
-    todo!()
+/// <https://drafts.csswg.org/css-syntax/#consume-a-declaration>
+/// Let decl be a new declaration, with an initially empty name and a value set to an empty list.
+/// 1. If the next token is an <ident-token>, consume a token from input and set decl’s name to the token’s value.
+///
+///     Otherwise, consume the remnants of a bad declaration from input, with nested, and return nothing.
+/// 2. Discard whitespace from input.
+/// 3. If the next token is a <colon-token>, discard a token from input.
+///
+///     Otherwise, consume the remnants of a bad declaration from input, with nested, and return nothing.
+/// 4. Discard whitespace from input.
+/// 5. Consume a list of component values from input, with nested, and with <semicolon-token> as the stop token, and set decl’s value to the result.
+/// 6. If the last two non-<whitespace-token>s in decl’s value are a <delim-token> with the value "!" followed by an <ident-token> with a value that is an ASCII case-insensitive match for "important", remove them from decl’s value and set decl’s important flag.
+/// 7. While the last item in decl’s value is a <whitespace-token>, remove that token.
+/// 8. If decl’s name is a custom property name string, then set decl’s original text to the segment of the original source text string corresponding to the tokens of decl’s value.
+///
+///     Otherwise, if decl’s value contains a top-level simple block with an associated token of <{-token>, and also contains any other non-<whitespace-token> value, return nothing. (That is, a top-level {}-block is only allowed as the entire value of a non-custom property.)
+///     
+///     Otherwise, if decl’s name is an ASCII case-insensitive match for "unicode-range", consume the value of a unicode-range descriptor from the segment of the original source text string corresponding to the tokens returned by the consume a list of component values call, and replace decl’s value with the result.
+/// 9. If decl is valid in the current context, return it; otherwise return nothing.
+fn consume_declaration(
+    tokens: &mut impl StreamIterator<CssToken>,
+    nested: bool,
+) -> Option<Declaration> {
+    let name;
+    let mut component_values: Vec<ComponentValue> = Vec::new();
+    let mut important = false;
+    let original_text = None;
+
+    if let Some(CssToken::IdentToken(name_tok)) = tokens.peek() {
+        name = name_tok;
+        tokens.next();
+    } else {
+        consume_bad_declaration(tokens, nested);
+        return None;
+    }
+
+    discard_whitespace(tokens);
+
+    if let Some(CssToken::ColonToken) = tokens.peek() {
+        tokens.next();
+    } else {
+        consume_bad_declaration(tokens, nested);
+        return None;
+    }
+
+    discard_whitespace(tokens);
+
+    component_values.append(&mut consume_component_list_value(
+        tokens,
+        Some(CssToken::ColonToken),
+        nested,
+    ));
+
+    if let Some(ComponentValue::PreservedToken(CssToken::DelimToken('!'))) =
+        component_values.get(component_values.len() - 2)
+    {
+        if let Some(ComponentValue::PreservedToken(CssToken::IdentToken(txt))) =
+            component_values.get(component_values.len() - 1)
+        {
+            if txt == &String::from("important") {
+                important = true;
+                component_values.pop();
+                component_values.pop();
+            }
+        }
+    }
+
+    while matches!(
+        component_values.last(),
+        Some(&ComponentValue::PreservedToken(CssToken::WhitespaceToken))
+    ) {
+        let _ = component_values.pop();
+    }
+
+    Some(Declaration {
+        name,
+        component_values,
+        important,
+        original_text,
+    })
+}
+
+/// <https://drafts.csswg.org/css-syntax/#consume-a-list-of-component-values>
+/// To consume a list of component values from a token stream input, given an optional token stop token and an optional boolean nested (default false):
+///
+/// Let values be an empty list of component values.
+///
+/// Process input:
+/// * \<eof-token>, stop token (if passed)
+///     
+///     Return values.
+/// * <}-token>
+///     
+///     If nested is true, return values.
+///     
+///     Otherwise, this is a parse error. Consume a token from input and append the result to values.
+/// * anything else
+///     
+///     Consume a component value from input, and append the result to values.
+fn consume_component_list_value(
+    tokens: &mut impl StreamIterator<CssToken>,
+    stop_token: Option<CssToken>,
+    nested: bool,
+) -> Vec<ComponentValue> {
+    let mut res: Vec<ComponentValue> = Vec::new();
+
+    while let Some(token) = tokens.peek() {
+        match token {
+            CssToken::AcoladeClToken => {
+                if nested {
+                    return res;
+                }
+                // parse error
+                tokens.next();
+            }
+            _ => {
+                if stop_token.is_some() && &token == stop_token.as_ref().unwrap() {
+                    return res;
+                }
+                let comp_val = consume_component_value(tokens);
+                if comp_val.is_ok() {
+                    res.push(comp_val.unwrap());
+                }
+            }
+        }
+    }
+
+    res
+}
+
+fn discard_whitespace(tokens: &mut impl StreamIterator<CssToken>) {
+    while let Some(CssToken::WhitespaceToken) = tokens.peek() {
+        tokens.next();
+    }
+}
+
+/// To consume the remnants of a bad declaration from a token stream input, given a bool nested:
+///
+/// Process input:
+///
+/// * \<eof-token>, \<semicolon-token>
+///     Discard a token from input, and return nothing.
+/// * <}-token>
+///     If nested is true, return nothing. Otherwise, discard a token.
+/// * anything else
+///     Consume a component value from input, and do nothing.
+fn consume_bad_declaration(tokens: &mut impl StreamIterator<CssToken>, nested: bool) {
+    while let Some(token) = tokens.peek() {
+        match token {
+            CssToken::SemicolonToken => {
+                tokens.next();
+                return;
+            }
+            CssToken::AcoladeClToken => {
+                if nested {
+                    return;
+                }
+                tokens.next();
+            }
+            _ => {
+                let _ = consume_component_value(tokens);
+            }
+        }
+    }
+    tokens.next();
 }
 
 /// <https://drafts.csswg.org/css-syntax/#consume-qualified-rule>
