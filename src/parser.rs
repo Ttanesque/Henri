@@ -5,6 +5,7 @@ use crate::{
 use log::{self, debug, error, warn};
 use url::Url;
 
+#[derive(Debug)]
 pub struct Declaration {
     name: String,
     component_values: Vec<ComponentValue>,
@@ -12,6 +13,7 @@ pub struct Declaration {
     original_text: Option<String>,
 }
 
+#[derive(Debug)]
 pub enum ComponentValue {
     PreservedToken(CssToken),
     Function {
@@ -24,6 +26,7 @@ pub enum ComponentValue {
     },
 }
 
+#[derive(Debug)]
 pub enum Rule {
     AtRule {
         name: String,
@@ -42,6 +45,7 @@ pub enum Rule {
     },
 }
 
+#[derive(Debug)]
 pub struct CssStyleSheet {
     type_sheet: String,
     location: String,
@@ -91,6 +95,7 @@ impl From<utils::ReadFileError> for ParseError {
     }
 }
 
+/// https://drafts.csswg.org/css-syntax/#consume-stylesheet-contents
 pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
     let datastream = utils::get_data(&url)?;
     let mut rules: Vec<Rule> = Vec::new();
@@ -146,6 +151,17 @@ fn consume_at_rule(tokens: &mut impl StreamIterator<CssToken>, nested: bool) -> 
 
         while let Some(token) = tokens.peek() {
             match token {
+                CssToken::SemicolonToken => {
+                    if !child_rules.is_empty() || !declarations.is_empty() {
+                        return Some(Rule::BlockAtRule {
+                            name,
+                            component_value: prelude,
+                            declarations,
+                            child_rules,
+                        });
+                    }
+                    return None;
+                }
                 CssToken::AcoladeClToken => {
                     if nested {
                         if !child_rules.is_empty() || !declarations.is_empty() {
@@ -634,13 +650,17 @@ pub fn normalize(input: String) -> impl StreamIterator<CssToken> {
 mod parser_test {
     use std::{fs::File, io::Read};
 
-    use crate::utils::test_utils::init_test_logger;
+    use url::Url;
+
+    use crate::{parser::parse_stylesheet, utils::test_utils::init_test_logger};
 
     use super::normalize;
 
     #[test]
     fn normalize_test() {
         init_test_logger();
+        let res = parse_stylesheet(Url::from_file_path("./test/style.css").unwrap());
+        log::debug!("{:#?}", res);
 
         let mut file = File::open("./test/style.css").unwrap();
         let mut buffer = String::new();
