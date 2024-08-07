@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read};
 
+use log::debug;
 use url::Url;
 
 use crate::tokeniser::CssToken;
@@ -104,11 +105,13 @@ impl StreamIterator<CssToken> for TokenStream {
     }
 
     fn mark(&mut self) {
+        debug!("Stream Marks");
         self.marks.push_back(self.index)
     }
 
     fn unmark(&mut self) -> bool {
         if let Some(index) = self.marks.pop_front() {
+            debug!("Stream unmark");
             self.index = index;
             return true;
         }

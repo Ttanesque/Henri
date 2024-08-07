@@ -95,12 +95,14 @@ impl From<utils::ReadFileError> for ParseError {
     }
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-stylesheet-contents
+/// <https://drafts.csswg.org/css-syntax/#consume-stylesheet-contents>
 pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
     let datastream = utils::get_data(&url)?;
     let mut rules: Vec<Rule> = Vec::new();
+    debug!("File get");
 
     let mut token_stream = normalize(datastream);
+    debug!("Stream tokenize");
     while let Some(token) = token_stream.peek() {
         match token {
             CssToken::WhitespaceToken | CssToken::CdcToken | CssToken::CdoToken => {
@@ -122,7 +124,7 @@ pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
     Ok(CssStyleSheet::new(url, rules))
 }
 
-/// https://drafts.csswg.org/css-syntax/#consume-at-rule
+/// <https://drafts.csswg.org/css-syntax/#consume-at-rule>
 ///
 /// Assert: The next token is an <at-keyword-token>.
 ///
@@ -143,6 +145,7 @@ pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
 /// * anything else
 ///     * Consume a component value from input and append the returned value to rule’s prelude.
 fn consume_at_rule(tokens: &mut impl StreamIterator<CssToken>, nested: bool) -> Option<Rule> {
+    debug!("consume_at_rule");
     if let Some(CssToken::AtKeywordToken(name)) = tokens.peek() {
         tokens.next();
         let mut prelude: Vec<ComponentValue> = Vec::new();
@@ -220,6 +223,7 @@ fn consume_at_rule(tokens: &mut impl StreamIterator<CssToken>, nested: bool) -> 
 ///
 /// Return decls and rules.
 fn consume_block(tokens: &mut impl StreamIterator<CssToken>) -> (Vec<Declaration>, Vec<Rule>) {
+    debug!("consume_block");
     if let Some(CssToken::AcoladeOpToken) = tokens.peek() {
         tokens.next();
         return consume_block_content(tokens);
@@ -246,6 +250,7 @@ fn consume_block(tokens: &mut impl StreamIterator<CssToken>) -> (Vec<Declaration
 fn consume_block_content(
     tokens: &mut impl StreamIterator<CssToken>,
 ) -> (Vec<Declaration>, Vec<Rule>) {
+    debug!("consume_block_content");
     let mut rules: Vec<Rule> = Vec::new();
     let mut declarations: Vec<Declaration> = Vec::new();
 
@@ -260,15 +265,19 @@ fn consume_block_content(
                 }
             }
             _ => {
+                debug!("-> mark for introspection");
                 tokens.mark();
                 if let Some(decls) = consume_declaration(tokens, true) {
+                    debug!("declaration found");
                     declarations.push(decls);
                     tokens.discard_mark();
                 } else {
+                    debug!("testing qualified rule");
                     tokens.unmark();
                     if let Some(rls) =
                         consume_qualified_rule(tokens, Some(CssToken::SemicolonToken), true)
                     {
+                        debug!("qualified found");
                         rules.push(rls);
                     }
                 }
@@ -302,6 +311,7 @@ fn consume_declaration(
     tokens: &mut impl StreamIterator<CssToken>,
     nested: bool,
 ) -> Option<Declaration> {
+    debug!("consume_declaration");
     let name;
     let mut component_values: Vec<ComponentValue> = Vec::new();
     let mut important = false;
@@ -467,10 +477,16 @@ fn consume_qualified_rule(
     stop_token: Option<CssToken>,
     nested: bool,
 ) -> Option<Rule> {
+    debug!(
+        "consume_qualified_rule {:#?} {}",
+        stop_token.clone(),
+        nested.clone()
+    );
     let mut prelude: Vec<ComponentValue> = Vec::new();
 
     if let Some(token) = tokens.peek() {
         if stop_token.is_some() && token == stop_token? {
+            debug!("Stop token found");
             return None;
         }
         match token {
@@ -481,7 +497,21 @@ fn consume_qualified_rule(
                 }
                 prelude.push(ComponentValue::PreservedToken(token));
             }
-            CssToken::AcoladeOpToken => {}
+            CssToken::AcoladeOpToken => {
+                discard_whitespace(tokens);
+                if let Some(CssToken::IdentToken(prefix)) = tokens.peek() {
+                    if  {
+                        
+                    }
+                } else {
+                    let (declarations, rules) = consume_block(tokens);
+                    return Some(Rule::QualifiedRule {
+                        component_value: Vec::new(),
+                        declarations,
+                        child_rules: rules,
+                    });
+                }
+            }
             _ => {
                 let val = consume_component_value(tokens);
                 if val.is_ok() {
@@ -648,7 +678,7 @@ pub fn normalize(input: String) -> impl StreamIterator<CssToken> {
 
 #[cfg(test)]
 mod parser_test {
-    use std::{fs::File, io::Read};
+    use std::{env, fs::File, io::Read};
 
     use url::Url;
 
@@ -659,7 +689,11 @@ mod parser_test {
     #[test]
     fn normalize_test() {
         init_test_logger();
-        let res = parse_stylesheet(Url::from_file_path("./test/style.css").unwrap());
+
+        let work_dir = env::current_dir().unwrap();
+        let location =
+            Url::from_file_path(format!("{}/test/style.css", work_dir.display())).unwrap();
+        let res = parse_stylesheet(location);
         log::debug!("{:#?}", res);
 
         let mut file = File::open("./test/style.css").unwrap();
