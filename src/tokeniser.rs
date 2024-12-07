@@ -239,11 +239,11 @@ fn consume_whitespaces(it: &mut impl StreamIterator<char>) {
 /// point is U+0028 LEFT PARENTHESIS ((), consume it. While the next two input code points
 /// are whitespace, consume the next input code point. If the next one or two input code points
 /// are U+0022 QUOTATION MARK ("), U+0027 APOSTROPHE ('), or whitespace followed by U+0022
-/// QUOTATION MARK (") or U+0027 APOSTROPHE ('), then create a <function-token> with its
+/// QUOTATION MARK (") or U+0027 APOSTROPHE ('), then create a `<function-token>` with its
 /// value set to string and return it. Otherwise, consume a url token, and return it.
 ///
 /// * Otherwise, if the next input code point is U+0028 LEFT PARENTHESIS ((), consume it.
-/// Create a <function-token> with its value set to string and return it.
+/// Create a `<function-token>` with its value set to string and return it.
 ///
 /// * Otherwise, create an <ident-token> with its value set to string and return it.
 fn consume_ident_like_token(it: &mut impl StreamIterator<char>) -> CssToken {
@@ -315,7 +315,6 @@ fn consume_string_token(it: &mut impl StreamIterator<char>, ending_char: char) -
     while let Some(curr_input) = it.peek() {
         it.next();
         if ending_char == curr_input {
-            it.next();
             break;
         }
         match curr_input {
@@ -655,7 +654,7 @@ fn start_ident_sequence(it: &mut impl StreamIterator<char>) -> bool {
 ///   EOF
 ///   * Return.
 /// * The input stream starts with a valid escape
-///     * Consume an escaped code point. This allows an escaped right parenthesis ("\)") to be encountered without ending the <bad-url-token>. This is otherwise identical to the "anything else" clause.
+///     * Consume an escaped code point. This allows an escaped right parenthesis ("\)") to be encountered without ending the `<bad-url-token>`. This is otherwise identical to the "anything else" clause.
 /// * anything else
 ///     * Do nothing.
 fn consume_remnants_bad_url(it: &mut impl StreamIterator<char>) {
@@ -806,13 +805,13 @@ fn is_non_ascii_ident(char_check: char) -> bool {
         || char_check > '\u{10000}'
 }
 
-/// <https://drafts.csswg.org/css-syntax/#ident-start-code-point
+/// <https://drafts.csswg.org/css-syntax/#ident-start-code-point>
 #[inline]
 fn is_ident_start_code_point(char_check: char) -> bool {
     is_letter(char_check) || is_non_ascii_ident(char_check) || char_check == '_'
 }
 
-/// <https://drafts.csswg.org/css-syntax/#ident-code-point
+/// <https://drafts.csswg.org/css-syntax/#ident-code-point>
 #[inline]
 fn is_indent_code_point(char_check: char) -> bool {
     is_ident_start_code_point(char_check) || is_digit(char_check) || char_check == '\u{002D}'
@@ -820,25 +819,25 @@ fn is_indent_code_point(char_check: char) -> bool {
 
 // --- hex ---
 
-/// <https://infra.spec.whatwg.org/#surrogate
+/// <https://infra.spec.whatwg.org/#surrogate>
 #[inline]
 fn is_a_surrogate_hex(char_value: u32) -> bool {
     is_a_leading_surrogate_hex(char_value) || is_a_trailing_surrogate_hex(char_value)
 }
 
-/// <https://infra.spec.whatwg.org/#leading-surrogate
+/// <https://infra.spec.whatwg.org/#leading-surrogate>
 #[inline]
 fn is_a_leading_surrogate_hex(char_value: u32) -> bool {
     char_value >= 0xD800 && char_value <= 0xDBFF
 }
 
-/// <https://infra.spec.whatwg.org/#trailing-surrogate
+/// <https://infra.spec.whatwg.org/#trailing-surrogate>
 #[inline]
 fn is_a_trailing_surrogate_hex(char_value: u32) -> bool {
     char_value >= 0xDC00 && char_value <= 0xDFFF
 }
 
-/// <https://drafts.csswg.org/css-syntax/#maximum-allowed-code-point
+/// <https://drafts.csswg.org/css-syntax/#maximum-allowed-code-point>
 #[inline]
 fn is_max_allowed_code_point_hex(char_value: u32) -> bool {
     char_value > 0x10FFFF
@@ -857,7 +856,7 @@ mod tests {
         utils::{test_utils, CharStream, StreamIterator},
     };
 
-    use super::{consume_ident_sequence, consume_remnants_bad_url};
+    use super::{consume_ident_sequence, consume_remnants_bad_url, tokenization};
 
     #[test]
     fn test_preprocessing() {
@@ -1117,6 +1116,11 @@ mod tests {
             let mut stream = CharStream::new(text);
             assert_eq!("olivier", consume_ident_sequence(&mut stream));
             assert_eq!(Some(','), stream.peek());
+
+            let text = String::from("utf-8;");
+            let mut stream = CharStream::new(text);
+            assert_eq!("utf-8", consume_ident_sequence(&mut stream));
+            assert_eq!(Some(';'), stream.peek());
         }
     }
 
@@ -1158,6 +1162,7 @@ mod tests {
 
     #[test]
     fn test_url() {
+        test_utils::init_test_logger();
         // test bad url recovery
         {
             let text = String::from("eafuiahf)");

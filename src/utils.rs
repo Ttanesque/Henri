@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read};
 
-use log::debug;
+use log::trace;
 use url::Url;
 
 use crate::tokeniser::CssToken;
@@ -21,7 +21,7 @@ pub(crate) struct TokenStream {
     marks: VecDeque<usize>,
 }
 
-/// Interface for explore a stream<i> with all the functionnality needed for the parsing.
+/// Interface for explore a `stream<i>` with all the functionnality needed for the parsing.
 pub trait StreamIterator<I> {
     /// Go to the next object in the stream. If it's in the end make nothing.
     fn next(&mut self);
@@ -94,24 +94,27 @@ impl StreamIterator<char> for CharStream {
 impl StreamIterator<CssToken> for TokenStream {
     fn next(&mut self) {
         self.index += 1;
+        trace!("index {}", self.index);
     }
 
     fn back(&mut self) {
         self.index -= 1;
+        trace!("index {}", self.index);
     }
 
     fn peek(&self) -> Option<CssToken> {
+        trace!("Token peek {:?}", self.tokens.get(self.index).cloned());
         self.tokens.get(self.index).cloned()
     }
 
     fn mark(&mut self) {
-        debug!("Stream Marks");
+        trace!("Stream Marks {}", self.index);
         self.marks.push_back(self.index)
     }
 
     fn unmark(&mut self) -> bool {
         if let Some(index) = self.marks.pop_front() {
-            debug!("Stream unmark");
+            trace!("Stream unmark {}", index);
             self.index = index;
             return true;
         }
@@ -119,7 +122,9 @@ impl StreamIterator<CssToken> for TokenStream {
     }
 
     fn discard_mark(&mut self) {
-        self.marks.pop_front();
+        if let Some(index) = self.marks.pop_front() {
+            trace!("Mark {} discarded", index)
+        };
     }
 }
 

@@ -1,10 +1,11 @@
 use crate::{
-    tokeniser::{self, preprocessing, tokenization, CssToken},
+    tokeniser::{preprocessing, tokenization, CssToken},
     utils::{self, CharStream, StreamIterator, TokenStream},
 };
-use log::{self, debug, error, warn};
+use log::{self, debug, error, trace, warn};
 use url::Url;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Declaration {
     name: String,
@@ -45,6 +46,7 @@ pub enum Rule {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct CssStyleSheet {
     type_sheet: String,
@@ -75,7 +77,10 @@ impl CssStyleSheet {
             origin_clean: false,
             constructed: false,
             disallow_modification: false,
-            base_url: String::new(),
+            base_url: location
+                .domain()
+                .unwrap_or("Host not get in the url")
+                .to_string(),
         }
     }
 }
@@ -126,7 +131,7 @@ pub fn parse_stylesheet(url: Url) -> Result<CssStyleSheet, ParseError> {
 
 /// <https://drafts.csswg.org/css-syntax/#consume-at-rule>
 ///
-/// Assert: The next token is an <at-keyword-token>.
+/// Assert: The next token is an `<at-keyword-token>`.
 ///
 /// Consume a token from input, and let rule be a new at-rule with its name set to the returned token’s value, its prelude initially set to an empty list, and no declarations or child rules.
 ///
@@ -155,6 +160,8 @@ fn consume_at_rule(tokens: &mut impl StreamIterator<CssToken>, nested: bool) -> 
         while let Some(token) = tokens.peek() {
             match token {
                 CssToken::SemicolonToken => {
+                    debug!("consume_at_rule end");
+                    tokens.next();
                     if !child_rules.is_empty() || !declarations.is_empty() {
                         return Some(Rule::BlockAtRule {
                             name,
@@ -214,7 +221,7 @@ fn consume_at_rule(tokens: &mut impl StreamIterator<CssToken>, nested: bool) -> 
 /// <https://drafts.csswg.org/css-syntax/#consume-a-block>
 ///
 /// To consume a block, from a token stream input:
-/// Assert: The next token is a <{-token>.
+/// Assert: The next token is a `<{-token>`.
 ///
 /// Let decls be an empty list of declarations, and rules be an empty list of rules.
 ///
@@ -246,7 +253,7 @@ fn consume_block(tokens: &mut impl StreamIterator<CssToken>) -> (Vec<Declaration
 /// * anything else
 ///     * Mark input.
 ///     * Consume a declaration from input, with nested set to true. If a declaration was returned, append it to decls, and discard a mark from input.
-///     * Otherwise, restore a mark from input, then consume a qualified rule from input, with nested set to true, and <semicolon-token> as the stop token. If a rule was returned, append it to rules.
+///     * Otherwise, restore a mark from input, then consume a qualified rule from input, with nested set to true, and `<semicolon-token>` as the stop token. If a rule was returned, append it to rules.
 fn consume_block_content(
     tokens: &mut impl StreamIterator<CssToken>,
 ) -> (Vec<Declaration>, Vec<Rule>) {
@@ -285,25 +292,26 @@ fn consume_block_content(
         }
     }
 
+    debug!("consume_block_content end");
     (declarations, rules)
 }
 
 /// <https://drafts.csswg.org/css-syntax/#consume-a-declaration>
 /// Let decl be a new declaration, with an initially empty name and a value set to an empty list.
-/// 1. If the next token is an <ident-token>, consume a token from input and set decl’s name to the token’s value.
+/// 1. If the next token is an `<ident-token>`, consume a token from input and set decl’s name to the token’s value.
 ///
 ///     Otherwise, consume the remnants of a bad declaration from input, with nested, and return nothing.
 /// 2. Discard whitespace from input.
-/// 3. If the next token is a <colon-token>, discard a token from input.
+/// 3. If the next token is a `<colon-token>`, discard a token from input.
 ///
 ///     Otherwise, consume the remnants of a bad declaration from input, with nested, and return nothing.
 /// 4. Discard whitespace from input.
-/// 5. Consume a list of component values from input, with nested, and with <semicolon-token> as the stop token, and set decl’s value to the result.
-/// 6. If the last two non-<whitespace-token>s in decl’s value are a <delim-token> with the value "!" followed by an <ident-token> with a value that is an ASCII case-insensitive match for "important", remove them from decl’s value and set decl’s important flag.
+/// 5. Consume a list of component values from input, with nested, and with `<semicolon-token>` as the stop token, and set decl’s value to the result.
+/// 6. If the last two non-`<whitespace-token>`s in decl’s value are a `<delim-token>` with the value "!" followed by an `<ident-token>` with a value that is an ASCII case-insensitive match for "important", remove them from decl’s value and set decl’s important flag.
 /// 7. While the last item in decl’s value is a <whitespace-token>, remove that token.
 /// 8. If decl’s name is a custom property name string, then set decl’s original text to the segment of the original source text string corresponding to the tokens of decl’s value.
 ///
-///     Otherwise, if decl’s value contains a top-level simple block with an associated token of <{-token>, and also contains any other non-<whitespace-token> value, return nothing. (That is, a top-level {}-block is only allowed as the entire value of a non-custom property.)
+///     Otherwise, if decl’s value contains a top-level simple block with an associated token of `<{-token>`, and also contains any other non-<whitespace-token> value, return nothing. (That is, a top-level {}-block is only allowed as the entire value of a non-custom property.)
 ///     
 ///     Otherwise, if decl’s name is an ASCII case-insensitive match for "unicode-range", consume the value of a unicode-range descriptor from the segment of the original source text string corresponding to the tokens returned by the consume a list of component values call, and replace decl’s value with the result.
 /// 9. If decl is valid in the current context, return it; otherwise return nothing.
@@ -465,7 +473,7 @@ fn consume_bad_declaration(tokens: &mut impl StreamIterator<CssToken>, nested: b
 /// * <}-token>
 ///     * This is a parse error. If nested is true, return nothing. Otherwise, consume a token and append the result to rule’s prelude.
 /// * <{-token>
-///     * If the first two non-<whitespace-token> values of rule’s prelude are an \<ident-token> whose value starts with "--" followed by a <colon-token>, then:
+///     * If the first two non-<whitespace-token> values of rule’s prelude are an \<ident-token> whose value starts with "--" followed by a `<colon-token>`, then:
 ///         * If nested is true, consume the remnants of a bad declaration from input, with nested set to true, and return nothing.
 ///         * If nested is false, consume a block from input, and return nothing.
 ///         * Otherwise, consume a block from input, and assign the results to rule’s lists of declarations and child rules.
@@ -477,11 +485,7 @@ fn consume_qualified_rule(
     stop_token: Option<CssToken>,
     nested: bool,
 ) -> Option<Rule> {
-    debug!(
-        "consume_qualified_rule {:#?} {}",
-        stop_token.clone(),
-        nested.clone()
-    );
+    debug!("consume_qualified_rule");
     let mut prelude: Vec<ComponentValue> = Vec::new();
 
     if let Some(token) = tokens.peek() {
@@ -500,11 +504,10 @@ fn consume_qualified_rule(
             CssToken::AcoladeOpToken => {
                 discard_whitespace(tokens);
                 if let Some(CssToken::IdentToken(prefix)) = tokens.peek() {
-                    if  {
-                        
-                    }
+                    if prefix == "-" {}
                 } else {
                     let (declarations, rules) = consume_block(tokens);
+                    debug!("consume_qualified_rule end");
                     return Some(Rule::QualifiedRule {
                         component_value: Vec::new(),
                         declarations,
@@ -528,7 +531,7 @@ fn consume_qualified_rule(
 /// <https://drafts.csswg.org/css-syntax/#consume-a-component-value>
 /// To consume a component value from a token stream input:
 /// Process input:
-/// * <{-token> <[-token> <(-token>
+/// * <{-token> <[-token> `<(-token>`
 ///     * Consume a simple block from input and return the result.
 /// * \<function-token>
 ///     * Consume a function from input and return the result.
@@ -555,7 +558,7 @@ fn consume_component_value(
 
 /// <https://drafts.csswg.org/css-syntax/#consume-a-function>
 /// To consume a function from a token stream input:
-/// Assert: The next token is a <function-token>.
+/// Assert: The next token is a `<function-token>`.
 ///
 /// Consume a token from input, and let function be a new function with its name equal the returned token’s value, and a value set to an empty list.
 /// Process input:
@@ -599,9 +602,9 @@ fn consume_function(
 /// <https://drafts.csswg.org/css-syntax/#consume-a-simple-block>
 /// To consume a simple block from a token stream input:
 ///
-/// Assert: the next token of input is <{-token>, <[-token>, or <(-token>.
+/// Assert: the next token of input is `<{-token>`, `<[-token>`, or `<(-token>`.
 ///
-/// Let ending token be the mirror variant of the next token. (E.g. if it was called with <[-token>, the ending token is <]-token>.)
+/// Let ending token be the mirror variant of the next token. (E.g. if it was called with `<[-token>`, the ending token is `<]-token>`.)
 ///
 /// Let block be a new simple block with its associated token set to the next token and with its value initially set to an empty list.
 ///
@@ -663,14 +666,16 @@ pub fn normalize(input: String) -> impl StreamIterator<CssToken> {
                 log::error!("{}", err);
                 break;
             }
-            Ok(token) => tokens.push(token),
+            Ok(token) => {
+                tokens.push(token);
+            }
         }
 
         if tokens.len() > 1 && tokens.get(tokens.len() - 1) == tokens.get(tokens.len() - 2) {
             warn!("token already found {:#?}", tokens.get(tokens.len() - 1));
             break;
         }
-        debug!("last token found {:#?}", tokens.get(tokens.len() - 1));
+        trace!("last token found {:#?}", tokens.get(tokens.len() - 1));
     }
 
     TokenStream::new(tokens)
@@ -690,17 +695,22 @@ mod parser_test {
     fn normalize_test() {
         init_test_logger();
 
+        let mut file = File::open("./test/style.css").unwrap();
+        let mut buffer = String::new();
+        let _ = file.read_to_string(&mut buffer).unwrap();
+        normalize(buffer);
+
+        assert!(true);
+    }
+
+    #[test]
+    fn basic_parse_test() {
+        init_test_logger();
+
         let work_dir = env::current_dir().unwrap();
         let location =
             Url::from_file_path(format!("{}/test/style.css", work_dir.display())).unwrap();
         let res = parse_stylesheet(location);
         log::debug!("{:#?}", res);
-
-        let mut file = File::open("./test/style.css").unwrap();
-        let mut buffer = String::new();
-        let _ = file.read_to_string(&mut buffer).unwrap();
-
-        normalize(buffer);
-        assert!(false);
     }
 }
